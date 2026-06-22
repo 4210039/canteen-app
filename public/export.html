@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <title>Export dat pro migraci do databáze</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+    h1 { font-size: 1.3rem; }
+    .card { background: #F7F8F5; border: 1px solid #E0E0E0; border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; }
+    button {
+      background: #2E7D32; color: #fff; border: none; border-radius: 8px;
+      padding: .7rem 1.2rem; font-size: .9rem; cursor: pointer; margin-right: .5rem;
+    }
+    button:hover { filter: brightness(1.1); }
+    button.secondary { background: #fff; color: #1a1a1a; border: 1.5px solid #E0E0E0; }
+    pre {
+      background: #1a1a1a; color: #c5e8c5; padding: 1rem; border-radius: 8px;
+      overflow-x: auto; font-size: .78rem; max-height: 400px;
+    }
+    .stat { display: inline-block; background: #E8F5E9; color: #2E7D32; border-radius: 6px; padding: .2rem .6rem; font-size: .8rem; margin-right: .5rem; }
+    .muted { color: #888; font-size: .85rem; }
+  </style>
+</head>
+<body>
+  <h1>📦 Export dat pro migraci do databáze</h1>
+  <p class="muted">Sprint 1 nástroj: exportuje vaše aktuální data z prohlížeče (localStorage) do JSON souboru,
+  který se pak naimportuje do Supabase databáze přes <code>migrate-to-supabase.js</code>.
+  Žádná data se v prohlížeči nemažou — tohle je jen kopie.</p>
+
+  <div class="card">
+    <div id="summary">Načítám data z prohlížeče…</div>
+  </div>
+
+  <div class="card">
+    <button id="btnExport">⬇️ Stáhnout export.json</button>
+    <button class="secondary" id="btnPreview">👁️ Zobrazit náhled</button>
+  </div>
+
+  <pre id="preview" style="display:none"></pre>
+
+  <script>
+    const KEYS = ['menu', 'ingredients', 'ledger', 'cart', 'attendance'];
+
+    function loadAll() {
+      const out = {};
+      for (const k of KEYS) {
+        try {
+          const raw = localStorage.getItem('canteen_' + k);
+          out[k] = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          out[k] = null;
+        }
+      }
+      return out;
+    }
+
+    function renderSummary(data) {
+      const ledgerCount = Array.isArray(data.ledger) ? data.ledger.length : 0;
+      const weekCount = data.attendance ? Object.keys(data.attendance).length : 0;
+      const hasMenu = !!data.menu;
+
+      document.getElementById('summary').innerHTML = `
+        <strong>Nalezená data v tomto prohlížeči:</strong><br><br>
+        <span class="stat">${ledgerCount} skladových záznamů</span>
+        <span class="stat">${weekCount} týdnů docházky</span>
+        <span class="stat">${hasMenu ? '1 jídelníček' : '0 jídelníčků'}</span>
+        <span class="stat">${Array.isArray(data.cart) ? data.cart.length : 0} položek v nákupním seznamu</span>
+      `;
+    }
+
+    const data = loadAll();
+    renderSummary(data);
+
+    document.getElementById('btnPreview').addEventListener('click', () => {
+      const pre = document.getElementById('preview');
+      pre.style.display = pre.style.display === 'none' ? 'block' : 'none';
+      pre.textContent = JSON.stringify(data, null, 2);
+    });
+
+    document.getElementById('btnExport').addEventListener('click', () => {
+      const exportPayload = {
+        exportedAt: new Date().toISOString(),
+        sourceNote: 'Canteen Smart Manager — Sprint 1 localStorage export',
+        data,
+      };
+      const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `canteen-export-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>

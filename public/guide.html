@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Uživatelský průvodce – Správce jídelny</title>
+  <style>
+    :root {
+      --green: #2E7D32; --green-light: #4CAF50; --green-pale: #E8F5E9;
+      --amber: #F57C00; --amber-pale: #FFF3E0;
+      --blue: #1565C0; --blue-pale: #E3F2FD;
+      --red: #C62828; --red-pale: #FFEBEE;
+      --ink: #1A1A1A; --ink-mid: #555; --ink-light: #888;
+      --border: #E0E0E0; --surface: #F7F8F5; --white: #fff;
+      --radius: 10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; color: var(--ink); background: var(--surface); }
+    a { color: var(--green); }
+
+    /* Header */
+    .header { background: var(--green); color: #fff; padding: 1.25rem 1.5rem; }
+    .header h1 { font-size: 1.4rem; }
+    .header p { font-size: .9rem; opacity: .85; margin-top: .25rem; }
+
+    /* Layout */
+    .page { max-width: 860px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+
+    /* Intro box */
+    .intro {
+      background: var(--green-pale); border: 1.5px solid var(--green-light);
+      border-radius: var(--radius); padding: 1.1rem 1.25rem; margin-bottom: 2rem;
+      display: flex; gap: 1rem; align-items: flex-start;
+    }
+    .intro-icon { font-size: 2rem; flex-shrink: 0; }
+    .intro p { font-size: .9rem; line-height: 1.6; color: var(--ink-mid); }
+    .intro strong { color: var(--ink); }
+
+    /* Section */
+    .section { margin-bottom: 2.5rem; }
+    .section-title {
+      display: flex; align-items: center; gap: .6rem;
+      font-size: 1.05rem; font-weight: 700; color: var(--green);
+      border-bottom: 2px solid var(--green-pale); padding-bottom: .5rem; margin-bottom: 1.1rem;
+    }
+    .section-title .num {
+      background: var(--green); color: #fff;
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .85rem; font-weight: 700; flex-shrink: 0;
+    }
+
+    /* Steps */
+    .steps { display: flex; flex-direction: column; gap: .75rem; }
+    .step {
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: .9rem 1rem;
+      display: flex; gap: .9rem; align-items: flex-start;
+    }
+    .step-num {
+      background: var(--green-pale); color: var(--green);
+      width: 26px; height: 26px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .8rem; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+    }
+    .step-body { flex: 1; }
+    .step-body strong { display: block; font-size: .9rem; margin-bottom: .2rem; }
+    .step-body p { font-size: .84rem; color: var(--ink-mid); line-height: 1.5; }
+    .step-body .action {
+      display: inline-flex; align-items: center; gap: .3rem;
+      background: var(--green); color: #fff;
+      border-radius: 6px; padding: .25rem .65rem; font-size: .78rem; font-weight: 600;
+      margin-top: .4rem;
+    }
+    .step-body .note {
+      background: var(--amber-pale); border-left: 3px solid var(--amber);
+      border-radius: 0 6px 6px 0; padding: .4rem .7rem;
+      font-size: .8rem; color: var(--ink-mid); margin-top: .5rem;
+    }
+    .step-body .tip {
+      background: var(--blue-pale); border-left: 3px solid var(--blue);
+      border-radius: 0 6px 6px 0; padding: .4rem .7rem;
+      font-size: .8rem; color: var(--ink-mid); margin-top: .5rem;
+    }
+
+    /* Weekly workflow */
+    .workflow {
+      display: flex; gap: 0; flex-wrap: wrap;
+      border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+      margin-bottom: 1.25rem;
+    }
+    .wf-step {
+      flex: 1; min-width: 140px;
+      padding: .85rem .75rem; background: var(--white);
+      border-right: 1px solid var(--border); text-align: center;
+      position: relative;
+    }
+    .wf-step:last-child { border-right: none; }
+    .wf-step .wf-icon { font-size: 1.6rem; display: block; margin-bottom: .3rem; }
+    .wf-step .wf-label { font-size: .78rem; font-weight: 600; color: var(--green); }
+    .wf-step .wf-sub { font-size: .72rem; color: var(--ink-light); margin-top: .15rem; }
+    .wf-arrow {
+      position: absolute; right: -10px; top: 50%;
+      transform: translateY(-50%);
+      font-size: .9rem; color: var(--ink-light); z-index: 1;
+    }
+
+    /* FAQ */
+    .faq { display: flex; flex-direction: column; gap: .6rem; }
+    .faq-item {
+      background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .faq-q {
+      padding: .75rem 1rem; font-size: .88rem; font-weight: 600;
+      cursor: pointer; display: flex; justify-content: space-between; align-items: center;
+      user-select: none;
+    }
+    .faq-q:hover { background: var(--surface); }
+    .faq-a {
+      padding: 0 1rem; font-size: .84rem; color: var(--ink-mid); line-height: 1.6;
+      max-height: 0; overflow: hidden; transition: max-height .25s ease, padding .25s;
+    }
+    .faq-item.open .faq-a { max-height: 200px; padding: .6rem 1rem .9rem; }
+    .faq-item.open .faq-q { color: var(--green); }
+    .faq-chevron { transition: transform .2s; }
+    .faq-item.open .faq-chevron { transform: rotate(180deg); }
+
+    /* Shortcuts table */
+    .shortcuts { width: 100%; border-collapse: collapse; font-size: .84rem; }
+    .shortcuts th {
+      text-align: left; padding: .5rem .75rem;
+      background: var(--surface); color: var(--ink-mid);
+      font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
+      border-bottom: 2px solid var(--border);
+    }
+    .shortcuts td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); }
+    .shortcuts tr:last-child td { border-bottom: none; }
+    .kbd {
+      display: inline-block; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: .1rem .4rem; font-size: .78rem; font-family: monospace;
+      color: var(--ink);
+    }
+    .tag {
+      display: inline-block; padding: .15rem .5rem; border-radius: 4px;
+      font-size: .75rem; font-weight: 600;
+    }
+    .tag-weekly { background: var(--green-pale); color: var(--green); }
+    .tag-asneeded { background: var(--amber-pale); color: var(--amber); }
+    .tag-monthly { background: var(--blue-pale); color: var(--blue); }
+
+    /* Back button */
+    .back-btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      background: var(--white); border: 1.5px solid var(--border);
+      border-radius: 8px; padding: .5rem 1rem; font-size: .85rem;
+      color: var(--ink); text-decoration: none; margin-bottom: 1.5rem;
+      transition: border-color .2s;
+    }
+    .back-btn:hover { border-color: var(--green); color: var(--green); }
+
+    @media (max-width: 500px) {
+      .workflow { flex-direction: column; }
+      .wf-step { border-right: none; border-bottom: 1px solid var(--border); }
+      .wf-arrow { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <h1>📖 Uživatelský průvodce</h1>
+  <p>Správce jídelny MŠ Harmonie · Jak efektivně používat aplikaci</p>
+</header>
+
+<div class="page">
+
+  <a href="/" class="back-btn">← Zpět do aplikace</a>
+
+  <!-- Intro -->
+  <div class="intro">
+    <span class="intro-icon">💡</span>
+    <p>Tato aplikace vám pomáhá <strong>každý týden zorganizovat nákup surovin</strong> pro školní jídelnu.
+    Stáhne jídelníček, AI extrahuje suroviny, vy zkontrolujete ceny v obchodech, potvrdíte nákup
+    a aplikace si pamatuje co jste koupili a za kolik. Celý cyklus trvá <strong>asi 10 minut týdně</strong>.</p>
+  </div>
+
+  <!-- Weekly workflow -->
+  <div class="section">
+    <div class="section-title"><span class="num">→</span> Týdenní pracovní postup</div>
+    <div class="workflow">
+      <div class="wf-step">
+        <span class="wf-icon">📋</span>
+        <div class="wf-label">1. Jídelníček</div>
+        <div class="wf-sub">Načíst menu</div>
+        <span class="wf-arrow">›</span>
+      </div>
+      <div class="wf-step">
+        <span class="wf-icon">👦</span>
+        <div class="wf-label">2. Docházka</div>
+        <div class="wf-sub">Zadat počty dětí</div>
+        <span class="wf-arrow">›</span>
+      </div>
+      <div class="wf-step">
+        <span class="wf-icon">🧮</span>
+        <div class="wf-label">3. Suroviny</div>
+        <div class="wf-sub">Přepočítat dle norem</div>
+        <span class="wf-arrow">›</span>
+      </div>
+      <div class="wf-step">
+        <span class="wf-icon">🏷️</span>
+        <div class="wf-label">4. Akce</div>
+        <div class="wf-sub">Nákup → sklad</div>
+        <span class="wf-arrow">›</span>
+      </div>
+      <div class="wf-step">
+        <span class="wf-icon">📦</span>
+        <div class="wf-label">5. Sklad</div>
+        <div class="wf-sub">Odepsat spotřebu</div>
+        <span class="wf-arrow">›</span>
+      </div>
+      <div class="wf-step">
+        <span class="wf-icon">📊</span>
+        <div class="wf-label">6. Finance</div>
+        <div class="wf-sub">Zkontrolovat náklady</div>
+        <span class="wf-arrow">›</span>
+      </div>
+      <div class="wf-step">
+        <span class="wf-icon">⚖️</span>
+        <div class="wf-label">7. Normy</div>
+        <div class="wf-sub">Měsíční kontrola</div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:.5rem">
+      💡 Kroky 1–6 opakujete <strong>každý týden</strong>. Krok 7 (Normy) kontrolujte
+      <strong>jednou měsíčně</strong>, abyste ověřili soulad s vyhláškou.
+    </p>
+  </div>
+
+  <!-- Quick start box -->
+  <div class="intro" style="background: var(--blue-pale); border-color: var(--blue);">
+    <span class="intro-icon">🚦</span>
+    <p><strong>Nevíte kde začít?</strong> Otevřete aplikaci a postupujte zleva doprava podle záložek v horní liště:
+    <strong>Jídelníček → Docházka → Akce & Nákup → Sklad → Finance → Normy</strong>.
+    Pořadí záložek odpovídá pořadí kroků níže.</p>
+  </div>
+
+  <!-- Step 1 -->
+  <div class="section">
+    <div class="section-title"><span class="num">1</span> Záložka Jídelníček — Načtení menu</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Klikněte na „🔄 Načíst jídelníček"</strong>
+          <p>Aplikace automaticky stáhne aktuální menu z webu MŠ Harmonie a AI ho zpracuje.
+          Trvá to 5–15 sekund.</p>
+          <span class="action">🔄 Načíst jídelníček</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>Zkontrolujte rozložení týdne</strong>
+          <p>Zobrazí se karty pro každý den s jídly (přesnídávka, oběd, svačina).
+          Pokud některý den chybí nebo je špatně — nevadí, suroviny jsou důležitější.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>Zkontrolujte extrahované suroviny</strong>
+          <p>Pod menu uvidíte barevné štítky se surovinami. AI je odvodila z názvů jídel.
+          Když vypadají správně, pokračujte na záložku Akce.</p>
+          <div class="tip">💡 Jídelníček se uloží automaticky. Příště ho nemusíte znovu načítat, dokud nepřijde nový týden.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Attendance -->
+  <div class="section">
+    <div class="section-title"><span class="num">2</span> Záložka Docházka — Kolik dětí bude jíst</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Vyberte věkovou skupinu dětí</strong>
+          <p>Nahoře zvolte věkovou kategorii (výchozí je „3–6 let (MŠ)"). Stát počítá s tím,
+          že menší děti jedí méně — 3–6leté děti dostávají 60 % porce dospělého.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>Zadejte počty dětí pro každý den a jídlo</strong>
+          <p>Pro Pondělí až Pátek vyplňte kolik dětí bude na <strong>přesnídávce</strong>,
+          <strong>obědě</strong> a <strong>svačině</strong>. Čísla se mohou lišit den od dne
+          (nemoci, výlety).</p>
+          <div class="tip">💡 Použijte „📋 Kopírovat minulý týden" pokud se docházka výrazně nemění — pak jen upravte výjimky.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>Klikněte „💾 Uložit docházku"</strong>
+          <p>Čísla se uloží a použijí pro výpočet surovin.</p>
+          <span class="action">💾 Uložit docházku</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <strong>Klikněte „Přepočítat" u Výpočtu surovin</strong>
+          <p>Aplikace spočítá, kolik gramů masa, zeleniny, mléka atd. přesně potřebujete nakoupit
+          na celý týden — podle počtu dětí a státních výživových norem.</p>
+          <div class="note">⚠️ Tento výpočet vám řekne <strong>kolik</strong> nakoupit (v gramech/kg).
+          Konkrétní suroviny pro recepty pořád najdete v záložce Jídelníček.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Offers -->
+  <div class="section">
+    <div class="section-title"><span class="num">3</span> Záložka Akce & Nákup — Nákupní seznam</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Klikněte na „🧮 Načíst z výpočtu surovin"</strong>
+          <p>Nákupní seznam se vytvoří přesně podle čísel, která jste spočítali v záložce Docházka —
+          ne podle hádání z názvů jídel. Pro každou skupinu potravin (maso, zelenina, mléko…)
+          dostanete jednu položku s přesným požadovaným množstvím.</p>
+          <span class="action">🧮 Načíst z výpočtu surovin</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>Pro každou položku otevřete odkaz do obchodu</strong>
+          <p>Klikněte na <strong>„Kupi.cz – Akce"</strong> nebo <strong>„Kupi.cz – Hledat vše"</strong> —
+          tam uvidíte aktuální akční ceny dané suroviny ze všech řetězců najednou (Lidl, Kaufland, Albert,
+          Globus i další). Tlačítka s názvem konkrétního obchodu (Lidl, Kaufland…) vedou na jeho
+          aktuální leták ke <strong>procházení</strong> — velké řetězce v ČR nemají veřejné vyhledávání
+          podle názvu produktu, takže přímý odkaz na konkrétní položku není možný.</p>
+          <div class="note">⚠️ Ceny se zobrazují přímo na webu obchodu — aplikace je neuloží automaticky. Musíte je zadat ručně do nákupního seznamu níže.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>Máte i jiného dodavatele? Klikněte „+ Přidat vlastní položku"</strong>
+          <p>Pro místního farmáře, řezníka nebo velkoobchod — zadejte název, skupinu potravin,
+          množství, cenu a jméno dodavatele ručně. Položka se přidá do stejného nákupního seznamu
+          vedle položek z velkých řetězců, označená modrým pruhem „vlastní dodavatel".</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <strong>Vyplňte ceny a dodavatele u všech položek v seznamu</strong>
+          <p>U každé položky zadejte cenu (Kč) kterou jste našli, a název obchodu/dodavatele.
+          Položky které nepotřebujete odškrtněte — nebudou zahrnuty do součtu ani do skladu.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <strong>Klikněte „✅ Potvrdit nákup → Sklad"</strong>
+          <p>Všechny zaškrtnuté položky se zapíší do skladu jako <strong>příjem</strong> (income)
+          a do finančního přehledu. Aplikace si zapamatuje co bylo koupeno, za kolik a od koho.</p>
+          <span class="action">✅ Potvrdit nákup → Sklad</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4: Sklad -->
+  <div class="section">
+    <div class="section-title"><span class="num">4</span> Záložka Sklad — Příjem a výdej (skladová evidence)</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Sklad teď funguje jako skutečná skladová evidence</strong>
+          <p>Nahoře vidíte <strong>aktuální stav zásob</strong> — kolik vám reálně zbývá od každé suroviny
+          (příjem mínus výdej). Dole je <strong>kompletní historie pohybů</strong> se značkou
+          ⬇ Příjem (nákup) nebo ⬆ Výdej (spotřeba).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>Po odvaření týdne klikněte „📤 Odepsat spotřebu týdne"</strong>
+          <p>Tím se ze skladu odečte množství, které jste podle výpočtu surovin měli ten týden
+          spotřebovat — stejně jako ve skutečném skladu, kde jídlem ubývají zásoby. Bez tohoto kroku
+          by sklad jen rostl a nikdy neukazoval reálný stav.</p>
+          <div class="tip">💡 Klikněte na to vždy na konci týdne, po té co bylo menu skutečně uvařeno a vydáno dětem.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>Přidejte ruční příjem tlačítkem „+ Ruční příjem"</strong>
+          <p>Použijte když jste nakoupili mimo nákupní seznam — třeba nouzový dokup
+          soli, koření nebo oleje.</p>
+          <div class="tip">💡 Označte „Akční cena: Ano" pokud jste koupili v akci — aplikace to zahrne do výpočtu úspor ve Financích.</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <strong>Smazání záznamu tlačítkem 🗑️</strong>
+          <p>Pokud jste přidali záznam omylem (příjem i výdej), smažte ho ikonou koše na konci řádku.
+          Stav zásob se přepočítá okamžitě.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 4 -->
+  <div class="section">
+    <div class="section-title"><span class="num">5</span> Záložka Finance — Přehled nákladů</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Nastavte počet dětí</strong>
+          <p>Vpravo nahoře v záložce Finance zadejte aktuální počet dětí. Aplikace pak
+          automaticky počítá náklady na jedno dítě za týden i za měsíc.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>Sledujte tři klíčové ukazatele</strong>
+          <p><strong>Tento týden</strong> — celkové náklady na suroviny v aktuálním týdnu.<br>
+          <strong>Tento měsíc</strong> — součet všech týdnů v aktuálním měsíci.<br>
+          <strong>Ušetřeno akcemi</strong> — odhadovaná úspora díky nákupům v akci.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>Týdenní historie</strong>
+          <p>Přehled všech minulých týdnů s celkovými náklady, cenou na dítě a počtem akčních položek.
+          Slouží pro srovnání a plánování rozpočtu.</p>
+          <div class="tip">💡 Doporučujeme jednou měsíčně projít historii a porovnat týdny s vyššími náklady — obvykle jde o týdny s masem nebo čerstvými surovinami.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 6: Norms -->
+  <div class="section">
+    <div class="section-title"><span class="num">6</span> Záložka Normy — Soulad s vyhláškou</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <strong>Zkontrolujte referenční tabulku</strong>
+          <p>Nahoře vidíte 9 skupin potravin a jejich denní cíl v gramech podle Vyhlášky
+          č. 107/2005 Sb. (pro 3–6leté děti, 60 % dospělé porce). Toto jsou závazné státní normy.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <strong>Klikněte „📊 Zkontrolovat plnění"</strong>
+          <p>Aplikace porovná co máte zaznamenáno ve skladu za posledních 30 dní s tím,
+          co byste podle počtu dětí měli nakoupit. Zobrazí se barevné pruhy — zelená je v normě,
+          červená pod normou, oranžová nad normou.</p>
+          <span class="action">📊 Zkontrolovat plnění</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <strong>Projděte povinnou frekvenci podávání</strong>
+          <p>Dole najdete seznam pravidel jako „ryby min. 2× měsíčně" nebo zákazy
+          (sladké nápoje, palmový tuk, slaný bujón). Použijte jako kontrolní seznam při plánování menu.</p>
+          <div class="note">⚠️ Přiřazení nakoupených surovin ke skupinám potravin je orientační
+          (na základě názvu položky). U hraničních případů zkontrolujte ručně.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Frequency table -->
+  <div class="section">
+    <div class="section-title"><span class="num">⏱</span> Jak často co dělat</div>
+    <table class="shortcuts">
+      <thead>
+        <tr><th>Akce</th><th>Kdy</th><th>Kde</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Načíst nový jídelníček</td>
+          <td><span class="tag tag-weekly">Každý týden</span> v pondělí ráno</td>
+          <td>Záložka Jídelníček</td>
+        </tr>
+        <tr>
+          <td>Zadat docházku dětí</td>
+          <td><span class="tag tag-weekly">Každý týden</span> po načtení menu</td>
+          <td>Záložka Docházka</td>
+        </tr>
+        <tr>
+          <td>Přepočítat potřebné suroviny</td>
+          <td><span class="tag tag-weekly">Každý týden</span> po zadání docházky</td>
+          <td>Záložka Docházka</td>
+        </tr>
+        <tr>
+          <td>Zkontrolovat akce a vyplnit ceny</td>
+          <td><span class="tag tag-weekly">Každý týden</span> před nákupem</td>
+          <td>Záložka Akce & Nákup</td>
+        </tr>
+        <tr>
+          <td>Potvrdit nákup do skladu (příjem)</td>
+          <td><span class="tag tag-weekly">Každý týden</span> po nákupu</td>
+          <td>Záložka Akce & Nákup</td>
+        </tr>
+        <tr>
+          <td>Odepsat spotřebu týdne (výdej)</td>
+          <td><span class="tag tag-weekly">Každý týden</span> po uvaření menu</td>
+          <td>Záložka Sklad</td>
+        </tr>
+        <tr>
+          <td>Přidat chybějící suroviny ručně</td>
+          <td><span class="tag tag-asneeded">Dle potřeby</span></td>
+          <td>Záložka Sklad</td>
+        </tr>
+        <tr>
+          <td>Zkontrolovat měsíční náklady</td>
+          <td><span class="tag tag-monthly">Měsíčně</span> na konci měsíce</td>
+          <td>Záložka Finance</td>
+        </tr>
+        <tr>
+          <td>Zkontrolovat plnění výživových norem</td>
+          <td><span class="tag tag-monthly">Měsíčně</span> na konci měsíce</td>
+          <td>Záložka Normy</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- FAQ -->
+  <div class="section">
+    <div class="section-title"><span class="num">?</span> Časté otázky</div>
+    <div class="faq">
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Jídelníček se nenačetl nebo zobrazuje chybu. Co s tím?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Zkontrolujte že server běží (v cmd vidíte „Canteen Manager running").
+          Web MŠ Harmonie může být dočasně nedostupný — zkuste to za chvíli znovu.
+          Pokud problém přetrvává, ověřte internetové připojení.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          AI extrahovala špatné suroviny. Jak to opravit?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Prozatím v MVP verzi nelze suroviny přímo editovat. Chybějící suroviny
+          přidejte ručně přes „+ Přidat položku" v záložce Sklad po potvrzení nákupu.
+          V příští verzi bude možné suroviny upravovat přímo.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Kde se ukládají data? Přijdu o ně při vypnutí počítače?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Data jsou uložena v localStorage vašeho prohlížeče. Přetrvají při vypnutí
+          počítače i restartu serveru. Ztratíte je pouze pokud vymažete historii prohlížeče
+          nebo data ručně smažete v záložce Nastavení.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Aplikace zobrazuje „Groq API klíč chybí". Jak to opravit?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Otevřete soubor .env v složce canteen-app a zkontrolujte řádek GROQ_API_KEY=gsk_...
+          Klíč musí začínat gsk_. Po uložení restartujte server (Ctrl+C a znovu node server.js).
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Jak aplikaci zastavit a znovu spustit?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          V příkazovém řádku (cmd) stiskněte Ctrl+C pro zastavení.
+          Pro spuštění: cd C:\MyProjects\canteen-app a pak node server.js.
+          Data zůstanou zachována.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Kupi.cz neukázal akce pro mou surovinu. Co teď?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Zkuste jiný obchod — klikněte na Kaufland, Lidl nebo Albert pro danou surovinu.
+          Pokud akce není nikde, zadejte běžnou cenu. Aplikace stále zaznamená nákup
+          a vy uvidíte v historii co bylo nejdražší.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Proč musím zadávat docházku zvlášť pro každé jídlo?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Ne všechny děti zůstávají na všechna jídla — některé odcházejí po obědě,
+          jiné přicházejí až na svačinu. Stát počítá normy zvlášť pro přesnídávku,
+          oběd a svačinu, takže přesné počty zajistí správný výpočet surovin.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Co je „příjem" a „výdej" ve skladu?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Příjem (⬇) je vše co nakoupíte a vloží do skladu — vzniká automaticky po „Potvrdit nákup"
+          nebo ručně přes „+ Ruční příjem". Výdej (⬆) je spotřeba — co se skutečně uvařilo a snědlo.
+          Vzniká kliknutím na „📤 Odepsat spotřebu týdne". Aktuální stav zásob = všechny příjmy
+          mínus všechny výdeje. Bez pravidelného odepisování spotřeby by sklad jen rostl
+          a neodpovídal realitě.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Jak přidám nákup od jiného dodavatele než z velkého řetězce?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          V záložce Akce & Nákup klikněte „+ Přidat vlastní položku" — zadáte název, skupinu potravin,
+          množství, cenu a jméno dodavatele (farmář, řezník, velkoobchod, cokoliv). Položka se přidá
+          do stejného nákupního seznamu a po potvrzení nákupu skončí ve skladu úplně stejně
+          jako položky z Lidlu nebo Kauflandu.
+        </div>
+      </div>
+      <div class="faq-item">
+        <div class="faq-q" onclick="toggleFaq(this)">
+          Záložka Normy ukazuje červené hodnoty. Je to problém?
+          <span class="faq-chevron">▼</span>
+        </div>
+        <div class="faq-a">
+          Červená znamená, že daná skupina potravin je pod 75 % normy za posledních 30 dní —
+          např. jste nakoupili málo ryb nebo luštěnin. Zkontrolujte jídelníček a přidejte
+          tyto suroviny do příštích týdnů. Oranžová (nad 125 %) obvykle problém není,
+          jen sledujte u masa kvůli nákladům.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings reminder -->
+  <div class="section">
+    <div class="section-title"><span class="num">⚙</span> Záložka Nastavení — co tam najdete</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-body">
+          <strong>Zkontrolovat server</strong>
+          <p>Tlačítko „Zkontrolovat" ověří že server běží a Groq API klíč je správně nastaven.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">✓</div>
+        <div class="step-body">
+          <strong>Výběr obchodů</strong>
+          <p>Zaškrtněte které obchody chcete zobrazovat v nabídkách. Výchozí jsou všechny čtyři.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">!</div>
+        <div class="step-body">
+          <strong>Smazat všechna data</strong>
+          <p>Použijte pouze pokud chcete začít úplně od začátku. Akce je nevratná.</p>
+          <div class="note">⚠️ Před smazáním doporučujeme zkontrolovat finanční přehled a případně si ho ofotit.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function toggleFaq(el) {
+  const item = el.closest('.faq-item');
+  item.classList.toggle('open');
+}
+</script>
+</body>
+</html>

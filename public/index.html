@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jídelna – Správce nákupů</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ── Header ── -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-icon">🍽️</span>
+        <div>
+          <h1>Správce jídelny</h1>
+          <p class="brand-sub">MŠ Harmonie · Chytrý nákupní asistent</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <a href="/guide.html" target="_blank" style="color:#fff;font-size:.82rem;opacity:.85;text-decoration:none;margin-right:.75rem">📖 Průvodce</a>
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-label" id="statusLabel">Připraveno</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Nav tabs ── -->
+  <nav class="tabs">
+    <button class="tab active" data-tab="menu">📋 Jídelníček</button>
+    <button class="tab" data-tab="attendance">👦 Docházka</button>
+    <button class="tab" data-tab="offers">🏷️ Akce & Nákup</button>
+    <button class="tab" data-tab="warehouse">📦 Sklad</button>
+    <button class="tab" data-tab="finance">📊 Finance</button>
+    <button class="tab" data-tab="norms">⚖️ Normy</button>
+    <button class="tab" data-tab="settings">⚙️ Nastavení</button>
+  </nav>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Jídelníček
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel active" id="tab-menu">
+    <div class="panel-header">
+      <div>
+        <h2>Týdenní jídelníček</h2>
+        <p class="muted">Automaticky stažen z ms-harmonie.cz</p>
+      </div>
+      <div class="panel-actions">
+        <button class="btn btn-primary" id="btnFetchMenu">🔄 Načíst jídelníček</button>
+        <span class="last-check muted" id="lastCheck"></span>
+      </div>
+    </div>
+
+    <div id="menuContent">
+      <div class="empty-state">
+        <span class="empty-icon">📅</span>
+        <p>Klikněte na „Načíst jídelníček" pro stažení aktuálního týdenního menu.</p>
+      </div>
+    </div>
+
+    <!-- Parsed ingredients result -->
+    <div id="ingredientsPanel" class="hidden">
+      <div class="section-title">
+        <h3>Extrahované suroviny</h3>
+        <button class="btn btn-secondary btn-sm" id="btnGoToOffers">Najít akce → </button>
+      </div>
+      <div id="ingredientsList" class="ingredient-chips"></div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Akce & Nákup
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-offers">
+    <div class="panel-header">
+      <div>
+        <h2>Nákupní seznam</h2>
+        <p class="muted">Vychází z výpočtu surovin (Docházka → Přepočítat) · Lidl · Kaufland · Albert · Globus · Kupi.cz · vlastní dodavatel</p>
+      </div>
+      <button class="btn btn-primary" id="btnGenOffers">🧮 Načíst z výpočtu surovin</button>
+    </div>
+
+    <div id="offersContent">
+      <div class="empty-state">
+        <span class="empty-icon">🛒</span>
+        <p>Nejprve v záložce <strong>Docházka</strong> zadejte docházku a klikněte „Přepočítat".
+        Pak se zde tlačítkem „Načíst z výpočtu surovin" vytvoří nákupní seznam.</p>
+      </div>
+    </div>
+
+    <!-- Shopping list summary -->
+    <div id="shoppingPanel" class="hidden">
+      <div class="section-title">
+        <h3>Nákupní seznam — položky k zakoupení</h3>
+        <button class="btn btn-secondary btn-sm" id="btnAddCustomItem">+ Přidat vlastní položku</button>
+      </div>
+
+      <!-- Custom item quick-add form -->
+      <div id="customItemForm" class="card form-card hidden">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Surovina</label>
+            <input type="text" id="custItemName" placeholder="např. Vejce od místního farmáře" />
+          </div>
+          <div class="form-group">
+            <label>Skupina potravin</label>
+            <select id="custItemGroup"></select>
+          </div>
+          <div class="form-group">
+            <label>Množství</label>
+            <input type="number" id="custItemQty" placeholder="1" min="0" step="0.1" />
+          </div>
+          <div class="form-group">
+            <label>Jednotka</label>
+            <select id="custItemUnit">
+              <option>kg</option><option>g</option><option>l</option>
+              <option>ml</option><option>ks</option><option>bal</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cena (Kč)</label>
+            <input type="number" id="custItemPrice" placeholder="0.00" min="0" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label>Dodavatel</label>
+            <input type="text" id="custItemSupplier" placeholder="např. Farma Novák" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" id="btnSaveCustomItem">Přidat do seznamu</button>
+          <button class="btn btn-ghost" id="btnCancelCustomItem">Zrušit</button>
+        </div>
+      </div>
+
+      <div id="shoppingList"></div>
+      <div class="cart-total">
+        <span>Odhadovaná celková cena:</span>
+        <strong id="cartTotal">–</strong>
+      </div>
+      <button class="btn btn-success mt-1" id="btnConfirmPurchase">✅ Potvrdit nákup → Sklad</button>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Sklad
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-warehouse">
+    <div class="panel-header">
+      <div>
+        <h2>Sklad — evidence příjmů a výdejů</h2>
+        <p class="muted">Aktuální stav zásob (příjem − výdej) a kompletní historie pohybů</p>
+      </div>
+      <div class="panel-actions">
+        <button class="btn btn-secondary" id="btnConsumeWeek">📤 Odepsat spotřebu týdne</button>
+        <button class="btn btn-secondary" id="btnAddItem">+ Ruční příjem</button>
+      </div>
+    </div>
+
+    <!-- Add item form -->
+    <div id="addItemForm" class="card form-card hidden">
+      <h3>Ruční příjem na sklad</h3>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Název suroviny</label>
+          <input type="text" id="itemName" placeholder="např. Máslo" />
+        </div>
+        <div class="form-group">
+          <label>Skupina potravin</label>
+          <select id="itemGroup"></select>
+        </div>
+        <div class="form-group">
+          <label>Množství</label>
+          <input type="number" id="itemQty" placeholder="1" min="0" step="0.1" />
+        </div>
+        <div class="form-group">
+          <label>Jednotka</label>
+          <select id="itemUnit">
+            <option>kg</option><option>g</option><option>l</option>
+            <option>ml</option><option>ks</option><option>bal</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Cena (Kč)</label>
+          <input type="number" id="itemPrice" placeholder="0.00" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>Dodavatel / obchod</label>
+          <select id="itemStore">
+            <option>Lidl</option><option>Kaufland</option><option>Albert</option>
+            <option>Globus</option><option>Jiný</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Akční cena?</label>
+          <select id="itemPromo">
+            <option value="false">Ne – běžná cena</option>
+            <option value="true">Ano – akční cena</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="btnSaveItem">Uložit na sklad</button>
+        <button class="btn btn-ghost" id="btnCancelItem">Zrušit</button>
+      </div>
+    </div>
+
+    <!-- Stock balance (current state) -->
+    <div class="section-title"><h3>📊 Aktuální stav zásob</h3></div>
+    <div id="stockBalance">
+      <div class="empty-state">
+        <span class="empty-icon">📊</span>
+        <p>Sklad je prázdný.</p>
+      </div>
+    </div>
+
+    <!-- Full ledger -->
+    <div class="section-title mt-2"><h3>📜 Historie pohybů (příjem / výdej)</h3></div>
+    <div id="warehouseTable">
+      <div class="empty-state">
+        <span class="empty-icon">📦</span>
+        <p>Sklad je prázdný. Přidejte první položku nebo potvrďte nákupní seznam.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Finance
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-finance">
+    <div class="panel-header">
+      <div>
+        <h2>Finanční přehled</h2>
+        <p class="muted">Náklady na suroviny · Týdenní a měsíční souhrny</p>
+      </div>
+      <div class="form-group inline">
+        <label>Počet dětí:</label>
+        <input type="number" id="childCount" value="25" min="1" max="200" style="width:70px" />
+      </div>
+    </div>
+
+    <div class="finance-grid">
+      <div class="stat-card">
+        <span class="stat-label">Tento týden (příjem)</span>
+        <span class="stat-value" id="statWeek">0 Kč</span>
+        <span class="stat-sub" id="statWeekChild">– Kč / dítě</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Tento měsíc (příjem)</span>
+        <span class="stat-value" id="statMonth">0 Kč</span>
+        <span class="stat-sub" id="statMonthChild">– Kč / dítě</span>
+      </div>
+      <div class="stat-card accent">
+        <span class="stat-label">Ušetřeno akcemi</span>
+        <span class="stat-value" id="statSaved">0 Kč</span>
+        <span class="stat-sub">vs. běžné ceny</span>
+      </div>
+      <div class="stat-card stock">
+        <span class="stat-label">Hodnota skladu nyní</span>
+        <span class="stat-value" id="statStockValue">0 Kč</span>
+        <span class="stat-sub" id="statStockNote">příjem − výdej</span>
+      </div>
+    </div>
+
+    <div class="section-title mt-2"><h3>Týdenní historie</h3></div>
+    <div id="weeklyHistory">
+      <div class="empty-state">
+        <span class="empty-icon">📊</span>
+        <p>Zatím žádné záznamy. Data se zobrazí po prvním potvrzeném nákupu.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Nastavení
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-settings">
+    <div class="panel-header">
+      <div><h2>Nastavení</h2></div>
+    </div>
+
+    <div class="card settings-card">
+      <h3>API & Připojení</h3>
+      <div class="form-group">
+        <label>Stav serveru</label>
+        <div id="serverStatus" class="status-row">
+          <button class="btn btn-secondary btn-sm" id="btnCheckHealth">Zkontrolovat</button>
+          <span id="healthResult" class="muted"></span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>URL jídelníčku</label>
+        <input type="text" id="menuUrl" value="https://www.ms-harmonie.cz/jidelnicek/" />
+        <span class="hint">Pouze pro referenci – server načítá tuto adresu.</span>
+      </div>
+    </div>
+
+    <div class="card settings-card">
+      <h3>Obchody pro vyhledávání akcí</h3>
+      <div class="store-toggles">
+        <label class="toggle-label"><input type="checkbox" class="store-cb" value="lidl" checked /> Lidl</label>
+        <label class="toggle-label"><input type="checkbox" class="store-cb" value="kaufland" checked /> Kaufland</label>
+        <label class="toggle-label"><input type="checkbox" class="store-cb" value="albert" checked /> Albert</label>
+        <label class="toggle-label"><input type="checkbox" class="store-cb" value="globus" checked /> Globus</label>
+      </div>
+    </div>
+
+    <div class="card settings-card danger-zone">
+      <h3>Správa dat</h3>
+      <p class="muted">Tato akce smaže všechna data uložená v prohlížeči (sklad, finance, jídelníček).</p>
+      <button class="btn btn-danger" id="btnClearData">🗑️ Smazat všechna data</button>
+    </div>
+  </section>
+
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Docházka (Attendance)
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-attendance">
+    <div class="panel-header">
+      <div>
+        <h2>Denní docházka dětí</h2>
+        <p class="muted">Počty přítomných dětí na každé jídlo · základ pro výpočet surovin</p>
+      </div>
+      <div class="panel-actions">
+        <button class="btn btn-secondary btn-sm" id="btnCopyPrevWeek">📋 Kopírovat minulý týden</button>
+        <button class="btn btn-primary" id="btnSaveAttendance">💾 Uložit docházku</button>
+      </div>
+    </div>
+
+    <!-- Age group selector -->
+    <div class="card att-config-card">
+      <div class="att-config-row">
+        <div class="form-group">
+          <label>Věková skupina dětí</label>
+          <select id="attAgeGroup">
+            <option value="ms_2_3">2–3 roky (MŠ)</option>
+            <option value="ms_3_6" selected>3–6 let (MŠ) – výchozí</option>
+            <option value="zs_7_10">7–10 let (ZŠ)</option>
+            <option value="zs_11_14">11–14 let (ZŠ)</option>
+            <option value="adult">15+ let</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Týden</label>
+          <input type="week" id="attWeekPicker" />
+        </div>
+        <div class="att-summary-box">
+          <span class="att-sum-label">Celkem jídel tento týden</span>
+          <span class="att-sum-value" id="attWeekTotal">–</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Daily attendance grid -->
+    <div id="attendanceGrid" class="attendance-grid"></div>
+
+    <!-- Ingredient calculator -->
+    <div class="section-title mt-2">
+      <h3>🧮 Výpočet surovin dle docházky a norem</h3>
+      <button class="btn btn-secondary btn-sm" id="btnCalcIngredients">Přepočítat</button>
+    </div>
+    <div id="ingredientCalcResult">
+      <div class="empty-state">
+        <span class="empty-icon">🧮</span>
+        <p>Zadejte docházku a klikněte „Přepočítat" pro výpočet potřebných surovin dle státních norem.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Normy (Government Nutrition Compliance)
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-norms">
+    <div class="panel-header">
+      <div>
+        <h2>Výživové normy – Spotřební koš</h2>
+        <p class="muted">Vyhl. č. 107/2005 Sb. · Tabulka 1 · Měsíční plnění na strávníka a den</p>
+      </div>
+      <button class="btn btn-primary" id="btnCheckCompliance">📊 Zkontrolovat plnění</button>
+    </div>
+
+    <!-- Norm reference table -->
+    <div class="card norm-ref-card">
+      <h3>Referenční hodnoty pro MŠ (věk 3–6 let, 60 % dospělé porce)</h3>
+      <div class="norm-ref-grid" id="normRefGrid"></div>
+    </div>
+
+    <!-- Monthly compliance check -->
+    <div class="section-title mt-2"><h3>Měsíční plnění spotřebního koše</h3></div>
+    <div id="complianceResult">
+      <div class="empty-state">
+        <span class="empty-icon">⚖️</span>
+        <p>Klikněte „Zkontrolovat plnění" pro porovnání skladu s výživovými normami.</p>
+      </div>
+    </div>
+
+    <!-- Frequency rules -->
+    <div class="section-title mt-2"><h3>Povinná frekvence podávání</h3></div>
+    <div class="freq-rules" id="freqRules"></div>
+  </section>
+
+  <!-- ── Toast notifications ── -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="norms.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
