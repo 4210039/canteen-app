@@ -771,6 +771,185 @@ function renderAll() {
 // ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════
+// SPRINT 2 — AUTH BOOTSTRAP
+// Gates the app behind login when DB is configured; otherwise the
+// app runs exactly as before (Sprint 1 localStorage-only fallback).
+// ══════════════════════════════════════════════════════════
+
+async function initAuthFlow() {
+  const { dbConfigured } = await window.AUTH.init();
+
+  if (!dbConfigured) {
+    // No database configured at all — skip auth entirely, app works
+    // exactly like pre-Sprint-2 on localStorage only.
+    return;
+  }
+
+  if (window.AUTH.isLoggedIn()) {
+    showApp();
+  } else {
+    showLogin();
+  }
+
+  wireLoginForms();
+}
+
+function showLogin() {
+  document.getElementById('loginOverlay').classList.remove('hidden');
+}
+
+function showApp() {
+  document.getElementById('loginOverlay').classList.add('hidden');
+  applyRoleGating();
+  renderAccountInfo();
+}
+
+function applyRoleGating() {
+  const profile = window.AUTH.getProfile();
+  if (!profile) return;
+
+  document.querySelectorAll('.tab').forEach(tab => {
+    const tabName = tab.dataset.tab;
+    if (window.AUTH.canSeeTab(tabName)) {
+      tab.classList.remove('hidden');
+    } else {
+      tab.classList.add('hidden');
+      // If the currently active tab just got hidden, fall back to Menu.
+      if (tab.classList.contains('active')) switchTab('menu');
+    }
+  });
+}
+
+function renderAccountInfo() {
+  const profile = window.AUTH.getProfile();
+  if (!profile) return;
+
+  const badge = document.getElementById('userBadge');
+  badge.classList.remove('hidden');
+  badge.innerHTML = `${escHtml(profile.full_name || 'Uživatel')} <span class="role-pill">${escHtml(window.AUTH.roleLabel())}</span>`;
+
+  const accountInfo = document.getElementById('accountInfo');
+  accountInfo.innerHTML = `
+    Přihlášen jako <strong>${escHtml(profile.full_name || '–')}</strong><br>
+    Role: <strong>${escHtml(window.AUTH.roleLabel())}</strong>`;
+  document.getElementById('btnLogout').classList.remove('hidden');
+
+  document.getElementById('syncCard').classList.remove('hidden');
+
+  if (profile.role === 'admin') {
+    document.getElementById('membersCard').classList.remove('hidden');
+    loadMembersList();
+  }
+}
+
+async function loadMembersList() {
+  const res = await fetch('/api/db/members', { headers: window.AUTH.getAuthHeader() });
+  if (!res.ok) return;
+  const members = await res.json();
+  const myId = window.AUTH.getProfile().id;
+
+  document.getElementById('membersList').innerHTML = members.map(m => `
+    <div class="member-row">
+      <span class="mr-name">${escHtml(m.full_name || '(bez jména)')}</span>
+      ${m.id === myId ? '<span class="mr-you">(vy)</span>' : ''}
+      <select onchange="updateMemberRole('${m.id}', this.value)" ${m.id === myId ? 'disabled' : ''}>
+        <option value="kucharka" ${m.role === 'kucharka' ? 'selected' : ''}>Kuchařka</option>
+        <option value="vedouci" ${m.role === 'vedouci' ? 'selected' : ''}>Vedoucí jídelny</option>
+        <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>Admin</option>
+      </select>
+    </div>`).join('');
+}
+
+async function updateMemberRole(userId, role) {
+  const res = await fetch(`/api/db/members/${userId}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...window.AUTH.getAuthHeader() },
+    body: JSON.stringify({ role }),
+  });
+  if (res.ok) toast('Role aktualizována.', 'success');
+  else toast('Změna role se nezdařila.', 'error');
+}
+
+function wireLoginForms() {
+  document.getElementById('linkShowSignup').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('signupForm').classList.remove('hidden');
+  });
+  document.getElementById('linkShowLogin').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.getElementById('signupForm').classList.add('hidden');
+    document.getElementById('loginForm').classList.remove('hidden');
+  });
+
+  document.getElementById('btnLogin').addEventListener('click', async () => {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    const errEl = document.getElementById('loginError');
+    errEl.classList.add('hidden');
+    try {
+      await window.AUTH.signIn(email, password);
+      showApp();
+      toast('Přihlášení úspěšné!', 'success');
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.classList.remove('hidden');
+    }
+  });
+
+  document.getElementById('btnSignup').addEventListener('click', async () => {
+    const fullName = document.getElementById('signupName').value.trim();
+    const email = document.getElementById('signupEmail').value.trim();
+    const password = document.getElementById('signupPassword').value;
+    const errEl = document.getElementById('signupError');
+    const okEl = document.getElementById('signupSuccess');
+    errEl.classList.add('hidden');
+    okEl.classList.add('hidden');
+    try {
+      const { needsEmailConfirm } = await window.AUTH.signUp(email, password, fullName);
+      if (needsEmailConfirm) {
+        okEl.textContent = 'Účet vytvořen! Zkontrolujte e-mail a potvrďte registraci, pak se přihlaste.';
+        okEl.classList.remove('hidden');
+      } else {
+        showApp();
+        toast('Účet vytvořen a jste přihlášeni!', 'success');
+      }
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.classList.remove('hidden');
+    }
+  });
+
+  document.getElementById('btnLogout')?.addEventListener('click', async () => {
+    await window.AUTH.signOut();
+    document.getElementById('userBadge').classList.add('hidden');
+    document.getElementById('syncCard').classList.add('hidden');
+    document.getElementById('membersCard').classList.add('hidden');
+    showLogin();
+  });
+
+  document.getElementById('btnSyncPush')?.addEventListener('click', async () => {
+    const statusEl = document.getElementById('syncStatus');
+    statusEl.textContent = 'Synchronizuji…';
+    const report = await window.SYNC.pushToCloud(msg => statusEl.textContent = msg);
+    statusEl.textContent = report.errors.length
+      ? `Hotovo s chybami: ${report.errors.join('; ')}`
+      : `✅ Nahráno: menu=${report.menu}, docházka=${report.attendance}, sklad=${report.ledger}`;
+  });
+
+  document.getElementById('btnSyncPull')?.addEventListener('click', async () => {
+    if (!confirm('Stažení z cloudu přepíše lokální sklad daty z databáze. Pokračovat?')) return;
+    const statusEl = document.getElementById('syncStatus');
+    statusEl.textContent = 'Stahuji…';
+    const report = await window.SYNC.pullFromCloud(msg => statusEl.textContent = msg);
+    renderWarehouse(); renderStockBalance(); renderFinance();
+    statusEl.textContent = report.errors.length
+      ? `Hotovo s chybami: ${report.errors.join('; ')}`
+      : `✅ Staženo: sklad=${report.ledger} záznamů`;
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadAll();
   initTabs();
@@ -781,6 +960,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAttendance();
   initNorms();
   initCustomItemForm();
+  initAuthFlow();
 
   // Button bindings
   document.getElementById('btnFetchMenu').addEventListener('click', fetchMenu);

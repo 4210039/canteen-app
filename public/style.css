@@ -457,3 +457,58 @@ input, select { font: inherit; }
 }
 .supplier-link:hover { background: var(--green-pale); color: var(--green); }
 .shopping-item.custom-source { border-left: 3px solid var(--blue); }
+
+/* ── Sprint 2: Login overlay ──────────────────────────────── */
+.login-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: linear-gradient(135deg, var(--green) 0%, #1B5E20 100%);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.login-card {
+  background: var(--white); border-radius: 16px;
+  padding: 2rem; width: 100%; max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+.login-brand { text-align: center; margin-bottom: 1.5rem; }
+.login-brand .brand-icon { font-size: 2.5rem; display: block; margin-bottom: .5rem; }
+.login-brand h1 { font-size: 1.3rem; margin-bottom: .2rem; }
+.login-card .form-group { margin-bottom: .9rem; }
+.login-card input {
+  width: 100%; padding: .6rem .75rem; border: 1.5px solid var(--border);
+  border-radius: 8px; font-size: .9rem;
+}
+.login-card input:focus { outline: none; border-color: var(--green); }
+.login-card a { color: var(--green); font-weight: 600; text-decoration: none; }
+.login-card a:hover { text-decoration: underline; }
+.login-error {
+  background: var(--red-pale); color: var(--red); border-radius: 7px;
+  padding: .5rem .7rem; font-size: .82rem; margin-bottom: .5rem;
+}
+.login-success {
+  background: var(--green-pale); color: var(--green); border-radius: 7px;
+  padding: .5rem .7rem; font-size: .82rem; margin-bottom: .5rem;
+}
+
+/* ── User badge in header ─────────────────────────────────── */
+.user-badge {
+  display: inline-flex; align-items: center; gap: .4rem;
+  background: rgba(255,255,255,.15); border-radius: 999px;
+  padding: .25rem .7rem; font-size: .78rem; margin-left: .6rem;
+}
+.user-badge .role-pill {
+  background: rgba(255,255,255,.25); border-radius: 999px;
+  padding: .1rem .5rem; font-size: .7rem; font-weight: 600;
+}
+
+/* ── Members list (Settings) ──────────────────────────────── */
+.member-row {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: .4rem; font-size: .85rem;
+}
+.member-row .mr-name { flex: 1; font-weight: 500; }
+.member-row select {
+  font-size: .8rem; border: 1px solid var(--border); border-radius: 6px; padding: .25rem .5rem;
+}
+.member-row .mr-you { font-size: .72rem; color: var(--ink-light); }

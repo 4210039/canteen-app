@@ -70,6 +70,18 @@ app.post('/api/groq', async (req, res) => {
   }
 });
 
+// ── Public config for frontend Supabase client ──────────────────────────────
+// The anon key is DESIGNED to be public (RLS protects the data, not secrecy
+// of this key) — this endpoint just avoids hardcoding it into a static JS
+// file, so the same build works against any .env without editing source.
+app.get('/api/public-config', (req, res) => {
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || null,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+    dbConfigured: isDbConfigured(),
+  });
+});
+
 // ── Health check ───────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({

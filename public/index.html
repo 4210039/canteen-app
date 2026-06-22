@@ -5,8 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Jídelna – Správce nákupů</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
+
+  <!-- ── Login overlay (Sprint 2) ── -->
+  <!-- Shown when DB is configured but user isn't logged in. Hidden entirely
+       (and app works on localStorage) when DB isn't configured at all. -->
+  <div id="loginOverlay" class="login-overlay hidden">
+    <div class="login-card">
+      <div class="login-brand">
+        <span class="brand-icon">🍽️</span>
+        <h1>Správce jídelny</h1>
+        <p class="muted">MŠ Harmonie · Přihlášení</p>
+      </div>
+
+      <div id="loginForm">
+        <div class="form-group">
+          <label>E-mail</label>
+          <input type="email" id="loginEmail" placeholder="vase@email.cz" autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label>Heslo</label>
+          <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password" />
+        </div>
+        <div id="loginError" class="login-error hidden"></div>
+        <button class="btn btn-primary" id="btnLogin" style="width:100%;justify-content:center;margin-top:.5rem">Přihlásit se</button>
+        <p class="muted" style="text-align:center;margin-top:1rem">
+          Nemáte účet? <a href="#" id="linkShowSignup">Vytvořit nový účet</a>
+        </p>
+      </div>
+
+      <div id="signupForm" class="hidden">
+        <div class="form-group">
+          <label>Jméno</label>
+          <input type="text" id="signupName" placeholder="Jana Nováková" />
+        </div>
+        <div class="form-group">
+          <label>E-mail</label>
+          <input type="email" id="signupEmail" placeholder="vase@email.cz" autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label>Heslo (min. 6 znaků)</label>
+          <input type="password" id="signupPassword" placeholder="••••••••" autocomplete="new-password" />
+        </div>
+        <div id="signupError" class="login-error hidden"></div>
+        <div id="signupSuccess" class="login-success hidden"></div>
+        <button class="btn btn-primary" id="btnSignup" style="width:100%;justify-content:center;margin-top:.5rem">Vytvořit účet</button>
+        <p class="muted" style="text-align:center;margin-top:.5rem">
+          Nový účet má ve výchozím stavu roli <strong>Kuchařka</strong>.
+          Administrátor vám může roli později změnit v Nastavení.
+        </p>
+        <p class="muted" style="text-align:center;margin-top:1rem">
+          Už máte účet? <a href="#" id="linkShowLogin">Přihlásit se</a>
+        </p>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Header ── -->
   <header class="header">
@@ -22,6 +77,7 @@
         <a href="/guide.html" target="_blank" style="color:#fff;font-size:.82rem;opacity:.85;text-decoration:none;margin-right:.75rem">📖 Průvodce</a>
         <span class="status-dot" id="statusDot"></span>
         <span class="status-label" id="statusLabel">Připraveno</span>
+        <span id="userBadge" class="user-badge hidden"></span>
       </div>
     </div>
   </header>
@@ -279,6 +335,29 @@
       <div><h2>Nastavení</h2></div>
     </div>
 
+    <div class="card settings-card hidden" id="syncCard">
+      <h3>☁️ Synchronizace s databází</h3>
+      <p class="muted">Vaše data jsou primárně uložená v tomto prohlížeči. Synchronizace je nahraje
+      do cloudu (Supabase), aby byla dostupná i z jiných zařízení a pro ostatní uživatele.</p>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem">
+        <button class="btn btn-primary btn-sm" id="btnSyncPush">⬆️ Nahrát do cloudu</button>
+        <button class="btn btn-secondary btn-sm" id="btnSyncPull">⬇️ Stáhnout z cloudu</button>
+      </div>
+      <div id="syncStatus" class="muted" style="margin-top:.6rem"></div>
+    </div>
+
+    <div class="card settings-card" id="accountCard">
+      <h3>👤 Účet</h3>
+      <div id="accountInfo" class="muted">Přihlášení není nakonfigurováno (databáze není zapojena).</div>
+      <button class="btn btn-secondary btn-sm hidden" id="btnLogout" style="margin-top:.75rem">Odhlásit se</button>
+    </div>
+
+    <div class="card settings-card hidden" id="membersCard">
+      <h3>👥 Uživatelé a role</h3>
+      <p class="muted">Pouze role Admin může měnit role ostatních uživatelů.</p>
+      <div id="membersList"></div>
+    </div>
+
     <div class="card settings-card">
       <h3>API & Připojení</h3>
       <div class="form-group">
@@ -404,6 +483,8 @@
   <div id="toast" class="toast hidden"></div>
 
   <script src="norms.js"></script>
+  <script src="auth.js"></script>
+  <script src="sync.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
