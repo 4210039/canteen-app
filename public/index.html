@@ -90,6 +90,7 @@
     <button class="tab" data-tab="warehouse">📦 Sklad</button>
     <button class="tab" data-tab="finance">📊 Finance</button>
     <button class="tab" data-tab="norms">⚖️ Normy</button>
+    <button class="tab" data-tab="audit">📋 Audit</button>
     <button class="tab" data-tab="settings">⚙️ Nastavení</button>
   </nav>
 
@@ -323,6 +324,39 @@
       <div class="empty-state">
         <span class="empty-icon">📊</span>
         <p>Zatím žádné záznamy. Data se zobrazí po prvním potvrzeném nákupu.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Audit log
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-audit">
+    <div class="panel-header">
+      <div>
+        <h2>Audit log</h2>
+        <p class="muted">Historie všech změn · Kdo · Co · Kdy · Vyhl. č. 107/2005 Sb. compliance</p>
+      </div>
+      <div class="panel-actions">
+        <select id="auditFilter" class="audit-filter">
+          <option value="">Všechny akce</option>
+          <option value="auth.login">Přihlášení</option>
+          <option value="menu.fetch">Jídelníček</option>
+          <option value="attendance.save">Docházka</option>
+          <option value="shopping.confirm">Nákup potvrzen</option>
+          <option value="ledger.in">Příjem na sklad</option>
+          <option value="ledger.out">Spotřeba odepsána</option>
+          <option value="ledger.delete">Smazání záznamu</option>
+          <option value="role.change">Změna role</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" id="btnRefreshAudit">🔄 Obnovit</button>
+      </div>
+    </div>
+
+    <div id="auditContent">
+      <div class="empty-state">
+        <span class="empty-icon">📋</span>
+        <p>Žádné záznamy. Audit log se plní automaticky při každé akci v aplikaci.</p>
       </div>
     </div>
   </section>

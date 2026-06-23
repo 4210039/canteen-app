@@ -19,8 +19,8 @@ window.AUTH = (function () {
   // kuchařka focuses on daily kitchen operations, not financial/compliance
   // reporting or settings (matches the Sprint 2 role definition).
   const TAB_PERMISSIONS = {
-    admin:    ['menu', 'attendance', 'offers', 'warehouse', 'finance', 'norms', 'settings'],
-    vedouci:  ['menu', 'attendance', 'offers', 'warehouse', 'finance', 'norms', 'settings'],
+    admin:    ['menu', 'attendance', 'offers', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
+    vedouci:  ['menu', 'attendance', 'offers', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
     kucharka: ['menu', 'attendance', 'offers', 'warehouse'],
   };
 
@@ -63,6 +63,11 @@ window.AUTH = (function () {
     if (error) throw new Error(translateAuthError(error.message));
     session = data.session;
     await loadProfile();
+    // Record login event in audit log (fire-and-forget, don't block UI)
+    fetch('/api/db/audit/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    }).catch(() => {}); // non-blocking, never throws
     return profile;
   }
 

@@ -18,6 +18,7 @@ const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
 const { isDbConfigured } = require('./db/supabaseClient');
 const { requireAuth, requireRole } = require('./authMiddleware');
+const { audit } = require('./audit');
 
 const router = express.Router();
 
@@ -88,6 +89,13 @@ router.post('/menus', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  await audit(req, {
+    action: 'menu.fetch',
+    entity: 'menus',
+    entity_id: data.id,
+    description: `Jídelníček načten pro týden ${week_key}`,
+    after_json: { week_key, days_count: (days_json || []).length },
+  });
   res.json(data);
 });
 
@@ -142,6 +150,12 @@ router.put('/attendance/bulk', async (req, res) => {
     .upsert(rows, { onConflict: 'org_id,week_key,day_index,meal,age_group' })
     .select();
   if (error) return res.status(500).json({ error: error.message });
+  await audit(req, {
+    action: 'attendance.save',
+    entity: 'attendance',
+    description: `Docházka uložena: ${rows.length} buněk`,
+    after_json: { count: rows.length },
+  });
   res.json(data);
 });
 
@@ -191,6 +205,13 @@ router.patch('/shopping-lists/:id/confirm', async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  await audit(req, {
+    action: 'shopping.confirm',
+    entity: 'shopping_lists',
+    entity_id: req.params.id,
+    description: `Nákupní seznam potvrzen (týden ${data.week_key})`,
+    after_json: { week_key: data.week_key, status: 'confirmed' },
+  });
   res.json(data);
 });
 
@@ -218,6 +239,13 @@ router.post('/ledger/bulk-in', async (req, res) => {
   const rows = entries.map(e => ({ ...e, type: 'in' }));
   const { data, error } = await supabase.from('inventory_ledger').insert(rows).select();
   if (error) return res.status(500).json({ error: error.message });
+  const totalPrice = rows.reduce((s, r) => s + (r.price || 0), 0);
+  await audit(req, {
+    action: 'ledger.in',
+    entity: 'inventory_ledger',
+    description: `Příjem na sklad: ${rows.length} položek, celkem ${totalPrice} Kč`,
+    after_json: { count: rows.length, total_price: totalPrice, week_key: rows[0]?.week_key },
+  });
   res.json(data);
 });
 
@@ -231,13 +259,29 @@ router.post('/ledger/bulk-out', async (req, res) => {
   const rows = entries.map(e => ({ ...e, type: 'out' }));
   const { data, error } = await supabase.from('inventory_ledger').insert(rows).select();
   if (error) return res.status(500).json({ error: error.message });
+  await audit(req, {
+    action: 'ledger.out',
+    entity: 'inventory_ledger',
+    description: `Spotřeba odepsána ze skladu: ${rows.length} skupin potravin, týden ${rows[0]?.week_key}`,
+    after_json: { count: rows.length, week_key: rows[0]?.week_key },
+  });
   res.json(data);
 });
 
 router.delete('/ledger/:id', requireRole('admin', 'vedouci'), async (req, res) => {
   const supabase = userScopedClient(req);
+  // Fetch before deleting so we can record what was removed
+  const { data: before } = await supabase
+    .from('inventory_ledger').select('*').eq('id', req.params.id).maybeSingle();
   const { error } = await supabase.from('inventory_ledger').delete().eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
+  await audit(req, {
+    action: 'ledger.delete',
+    entity: 'inventory_ledger',
+    entity_id: req.params.id,
+    description: `Záznam skladu smazán: ${before?.name || req.params.id}`,
+    before_json: before || null,
+  });
   res.json({ deleted: true });
 });
 
@@ -283,6 +327,8 @@ router.patch('/members/:userId/role', requireRole('admin'), async (req, res) => 
     return res.status(400).json({ error: 'role must be admin, vedouci, or kucharka' });
   }
   const supabase = userScopedClient(req);
+  const { data: before } = await supabase
+    .from('user_profiles').select('role, full_name').eq('id', req.params.userId).maybeSingle();
   const { data, error } = await supabase
     .from('user_profiles')
     .update({ role })
@@ -290,7 +336,46 @@ router.patch('/members/:userId/role', requireRole('admin'), async (req, res) => 
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+  await audit(req, {
+    action: 'role.change',
+    entity: 'user_profiles',
+    entity_id: req.params.userId,
+    description: `Role změněna pro ${before?.full_name || req.params.userId}: ${before?.role} → ${role}`,
+    before_json: { role: before?.role },
+    after_json: { role },
+  });
   res.json(data);
+});
+
+// ── Audit log (read-only for frontend) ───────────────────────
+// Sorted newest-first, paginated (default 100 rows).
+router.get('/audit', async (req, res) => {
+  const supabase = userScopedClient(req);
+  const { limit = 100, offset = 0, action } = req.query;
+
+  let query = supabase
+    .from('audit_log')
+    .select('*')
+    .eq('org_id', req.profile.org_id)
+    .order('created_at', { ascending: false })
+    .range(parseInt(offset), parseInt(offset) + parseInt(limit) - 1);
+
+  if (action) query = query.eq('action', action);
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Login event — called by the frontend right after successful auth.signIn()
+// so we have a record of who logged in from where and when.
+router.post('/audit/login', async (req, res) => {
+  await audit(req, {
+    action: 'auth.login',
+    entity: 'auth',
+    description: `Přihlášení: ${req.profile.full_name || req.user.email}`,
+  });
+  res.json({ ok: true });
 });
 
 module.exports = router;

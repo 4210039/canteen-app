@@ -112,6 +112,8 @@ function initTabs() {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      // Lazy-load audit log when tab is opened
+      if (btn.dataset.tab === 'audit') loadAuditLog();
     });
   });
 }
@@ -772,6 +774,92 @@ function renderAll() {
 // INIT
 // ══════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════
+// SPRINT 4 — AUDIT LOG
+// ══════════════════════════════════════════════════════════
+
+const AUDIT_ACTION_LABELS = {
+  'auth.login':       { label: 'Přihlášení',         css: 'auth-login' },
+  'menu.fetch':       { label: 'Jídelníček načten',   css: 'default' },
+  'attendance.save':  { label: 'Docházka uložena',    css: 'default' },
+  'shopping.confirm': { label: 'Nákup potvrzen',      css: 'default' },
+  'ledger.in':        { label: 'Příjem na sklad',     css: 'ledger-in' },
+  'ledger.out':       { label: 'Spotřeba odepsána',   css: 'ledger-out' },
+  'ledger.delete':    { label: 'Záznam smazán',       css: 'ledger-delete' },
+  'role.change':      { label: 'Změna role',          css: 'role-change' },
+};
+
+async function loadAuditLog(actionFilter = '') {
+  const container = document.getElementById('auditContent');
+  if (!window.AUTH.isLoggedIn()) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🔒</span><p>Přihlaste se pro zobrazení audit logu.</p></div>`;
+    return;
+  }
+
+  container.innerHTML = `<div class="empty-state"><span class="empty-icon">⏳</span><p>Načítám záznamy…</p></div>`;
+
+  try {
+    const params = new URLSearchParams({ limit: 200 });
+    if (actionFilter) params.set('action', actionFilter);
+
+    const res = await fetch(`/api/db/audit?${params}`, {
+      headers: window.AUTH.getAuthHeader(),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    const rows = await res.json();
+
+    if (!rows.length) {
+      container.innerHTML = `<div class="empty-state"><span class="empty-icon">📋</span><p>Zatím žádné záznamy. Audit log se plní automaticky při každé akci.</p></div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="overflow-x:auto">
+      <table class="audit-table">
+        <thead>
+          <tr>
+            <th>Akce</th>
+            <th>Popis</th>
+            <th>Uživatel</th>
+            <th>Role</th>
+            <th>Datum a čas</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => {
+            const meta = AUDIT_ACTION_LABELS[r.action] || { label: r.action, css: 'default' };
+            const when = new Date(r.created_at).toLocaleString('cs-CZ', {
+              day: '2-digit', month: '2-digit', year: 'numeric',
+              hour: '2-digit', minute: '2-digit'
+            });
+            return `
+              <tr>
+                <td><span class="audit-action ${meta.css}">${escHtml(meta.label)}</span></td>
+                <td class="audit-desc">${escHtml(r.description || r.action)}</td>
+                <td class="audit-who">${escHtml(r.user_name || '–')}</td>
+                <td><span class="badge-normal">${escHtml(r.user_role || '–')}</span></td>
+                <td class="audit-when">${escHtml(when)}</td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>
+      <p class="muted" style="margin-top:.5rem">Zobrazeno ${rows.length} záznamů · nejnovější nahoře</p>`;
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">❌</span><p>Chyba načítání: ${escHtml(err.message)}</p></div>`;
+  }
+}
+
+function initAuditTab() {
+  document.getElementById('btnRefreshAudit')?.addEventListener('click', () => {
+    const filter = document.getElementById('auditFilter').value;
+    loadAuditLog(filter);
+  });
+  document.getElementById('auditFilter')?.addEventListener('change', (e) => {
+    loadAuditLog(e.target.value);
+  });
+}
+
+// ══════════════════════════════════════════════════════════
 // SPRINT 2 — AUTH BOOTSTRAP
 // Gates the app behind login when DB is configured; otherwise the
 // app runs exactly as before (Sprint 1 localStorage-only fallback).
@@ -960,6 +1048,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAttendance();
   initNorms();
   initCustomItemForm();
+  initAuditTab();
   initAuthFlow();
 
   // Button bindings
