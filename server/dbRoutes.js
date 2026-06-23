@@ -62,6 +62,21 @@ router.get('/organizations', async (req, res) => {
 });
 
 // ── Menus ─────────────────────────────────────────────────────
+
+// List all stored menus for an org (summary list for the archive browser).
+// Returns id, week_key, fetched_at, days_json — sorted newest first.
+router.get('/menus/:orgId', async (req, res) => {
+  const supabase = userScopedClient(req);
+  const { orgId } = req.params;
+  const { data, error } = await supabase
+    .from('menus')
+    .select('id, week_key, fetched_at, days_json, ingredients')
+    .eq('org_id', orgId)
+    .order('week_key', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 router.get('/menus/:orgId/:weekKey', async (req, res) => {
   const supabase = userScopedClient(req);
   const { orgId, weekKey } = req.params;

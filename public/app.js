@@ -1164,6 +1164,190 @@ function wireLoginForms() {
   });
 }
 
+// ══════════════════════════════════════════════════════════
+// SAVED MENUS BROWSER
+// Lets users browse all weekly menus stored in the database,
+// filtered by year and month.  Works only when logged in (DB mode).
+// ══════════════════════════════════════════════════════════
+
+// All menus fetched from DB — populated by loadSavedMenus().
+let _savedMenus = [];
+let _selectedWeekKey = null;
+
+/**
+ * Convert a week_key (e.g. "2026-W03") back to a Date representing
+ * the first calendar day of that week, using the same week-numbering
+ * formula as getWeekKey():
+ *   week = Math.ceil(((dayOfYear) + jan1.getDay() + 1) / 7)
+ *
+ * Solving for dayOfYear: first day of week W is at
+ *   dayOfYear = (W-1)*7 - jan1.getDay()   (clamped to 0)
+ */
+function weekKeyToDate(wk) {
+  const [yearStr, wStr] = wk.split('-W');
+  const year = parseInt(yearStr, 10);
+  const weekNum = parseInt(wStr, 10);
+  const jan1 = new Date(year, 0, 1);
+  const firstDayOffset = Math.max(0, (weekNum - 1) * 7 - jan1.getDay());
+  return new Date(year, 0, 1 + firstDayOffset);
+}
+
+/** Human-readable label for a week range, e.g. "Týden 03 (12.1.–16.1.)" */
+function weekKeyRangeLabel(wk) {
+  const [, wStr] = wk.split('-W');
+  const start = weekKeyToDate(wk);
+  // School week ends on Friday (4 days after Sunday start, or 4 days later if start is already a weekday)
+  const dayOfWeek = start.getDay(); // 0=Sun
+  const monday = new Date(start);
+  if (dayOfWeek !== 1) {
+    // advance to next Monday
+    monday.setDate(start.getDate() + ((8 - dayOfWeek) % 7 || 7));
+  }
+  const friday = new Date(monday);
+  friday.setDate(monday.getDate() + 4);
+  const fmt = d => `${d.getDate()}.${d.getMonth() + 1}.`;
+  return `Týden ${wStr} (${fmt(monday)}–${fmt(friday)})`;
+}
+
+async function loadSavedMenus() {
+  const btn = document.getElementById('btnLoadSavedMenus');
+  const filter = document.getElementById('savedMenusFilter');
+
+  if (!window.AUTH?.isLoggedIn()) {
+    toast('Pro procházení uložených jídelníčků se přihlaste.', 'info');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Načítám…';
+
+  try {
+    const orgId = window.SYNC?.ORG_ID;
+    const res = await fetch(`/api/db/menus/${orgId}`, {
+      headers: window.AUTH.getAuthHeader(),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || res.status);
+    _savedMenus = await res.json();
+
+    if (!_savedMenus.length) {
+      toast('V databázi zatím nejsou uloženy žádné jídelníčky.', 'info');
+      return;
+    }
+
+    filter.style.display = '';
+    populateSavedMenusYearFilter();
+    renderSavedMenusWeekList();
+    toast(`Načteno ${_savedMenus.length} uložených jídelníčků.`, 'success');
+  } catch (err) {
+    toast('Chyba načítání: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 Načíst z databáze';
+  }
+}
+
+/** Populate year <select> with distinct years present in _savedMenus. */
+function populateSavedMenusYearFilter() {
+  const yearSelect = document.getElementById('menuFilterYear');
+  const monthSelect = document.getElementById('menuFilterMonth');
+
+  const years = [...new Set(_savedMenus.map(m => parseInt(m.week_key.split('-W')[0], 10)))].sort((a, b) => b - a);
+  yearSelect.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+
+  // Pre-select the year/month of the newest menu
+  const newest = _savedMenus[0];
+  if (newest) {
+    const d = weekKeyToDate(newest.week_key);
+    yearSelect.value = d.getFullYear();
+    monthSelect.value = d.getMonth() + 1;
+  }
+
+  yearSelect.onchange = () => {
+    _selectedWeekKey = null;
+    document.getElementById('savedMenuDetail').innerHTML = '';
+    renderSavedMenusWeekList();
+  };
+  monthSelect.onchange = () => {
+    _selectedWeekKey = null;
+    document.getElementById('savedMenuDetail').innerHTML = '';
+    renderSavedMenusWeekList();
+  };
+}
+
+/** Show the week buttons for the currently selected year+month. */
+function renderSavedMenusWeekList() {
+  const year = parseInt(document.getElementById('menuFilterYear').value, 10);
+  const month = parseInt(document.getElementById('menuFilterMonth').value, 10); // 1-based
+  const listEl = document.getElementById('savedMenuWeekList');
+
+  // Filter menus whose week starts in the selected year+month
+  const filtered = _savedMenus.filter(m => {
+    const d = weekKeyToDate(m.week_key);
+    return d.getFullYear() === year && (d.getMonth() + 1) === month;
+  });
+
+  if (!filtered.length) {
+    listEl.innerHTML = `<p class="muted" style="padding:.5rem 0">Žádné jídelníčky pro vybraný měsíc.</p>`;
+    return;
+  }
+
+  // Sort chronologically (oldest first within the month)
+  const sorted = [...filtered].sort((a, b) => a.week_key.localeCompare(b.week_key));
+
+  listEl.innerHTML = sorted.map(m => {
+    const isActive = m.week_key === _selectedWeekKey;
+    return `<button class="saved-week-btn ${isActive ? 'active' : ''}" onclick="selectSavedMenuWeek('${m.week_key}')">
+      <span class="swb-key">${escHtml(weekKeyRangeLabel(m.week_key))}</span>
+      <span class="swb-date">📅 ${new Date(m.fetched_at).toLocaleDateString('cs-CZ')}</span>
+    </button>`;
+  }).join('');
+}
+
+/** Display the full menu for the given week_key from the cached _savedMenus. */
+function selectSavedMenuWeek(weekKey) {
+  _selectedWeekKey = weekKey;
+  // Re-render list to update active state
+  renderSavedMenusWeekList();
+
+  const entry = _savedMenus.find(m => m.week_key === weekKey);
+  const detail = document.getElementById('savedMenuDetail');
+
+  if (!entry) {
+    detail.innerHTML = '';
+    return;
+  }
+
+  const days = Array.isArray(entry.days_json) ? entry.days_json : [];
+
+  if (!days.length) {
+    detail.innerHTML = `<p class="muted">Tento jídelníček nemá žádná data.</p>`;
+    return;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'week-grid';
+
+  for (const day of days) {
+    const card = document.createElement('div');
+    card.className = 'day-card';
+    const meals = (day.meals || []).map(m =>
+      `<div class="meal-label">${escHtml(m.label)}</div><div class="meal">${escHtml(m.dish)}</div>`
+    ).join('');
+    card.innerHTML = `<div class="day-name">${escHtml(day.name)} ${escHtml(day.date || '')}</div>${meals}`;
+    grid.appendChild(card);
+  }
+
+  detail.innerHTML = `<div class="saved-detail-header">
+    <h3>📋 ${escHtml(weekKeyRangeLabel(weekKey))}</h3>
+    <span class="muted">Uloženo: ${new Date(entry.fetched_at).toLocaleDateString('cs-CZ')}</span>
+  </div>`;
+  detail.appendChild(grid);
+}
+
+function initSavedMenusBrowser() {
+  document.getElementById('btnLoadSavedMenus').addEventListener('click', loadSavedMenus);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadAll();
   initTabs();
@@ -1176,6 +1360,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCustomItemForm();
   initAuditTab();
   initAuthFlow();
+  initSavedMenusBrowser();
 
   // Button bindings
   document.getElementById('btnFetchMenu').addEventListener('click', fetchMenu);

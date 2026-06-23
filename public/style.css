@@ -543,3 +543,40 @@ input, select { font: inherit; }
 .audit-desc { color: var(--ink); }
 .audit-who  { color: var(--ink-mid); white-space: nowrap; }
 .audit-when { color: var(--ink-light); white-space: nowrap; font-size: .75rem; }
+
+/* ── Saved menus archive browser ─────────────────────────── */
+.saved-menus-filter {
+  margin-top: .5rem;
+}
+.filter-row {
+  display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+.filter-row .form-group { min-width: 120px; }
+
+.saved-week-list {
+  display: flex; flex-direction: column; gap: .4rem;
+}
+.saved-week-btn {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .6rem .9rem;
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: 8px;
+  cursor: pointer; font-size: .85rem; text-align: left; width: 100%;
+  transition: background .15s, border-color .15s;
+}
+.saved-week-btn:hover { background: var(--green-pale); border-color: var(--green); color: var(--green); }
+.saved-week-btn.active { background: var(--green-pale); border-color: var(--green); color: var(--green); font-weight: 600; }
+.saved-week-btn .swb-key { font-weight: 600; }
+.saved-week-btn .swb-date { font-size: .78rem; color: var(--ink-light); }
+.saved-week-btn.active .swb-date { color: var(--green); }
+
+#savedMenuDetail {
+  margin-top: 1rem;
+}
+.saved-detail-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: .6rem;
+}
+.saved-detail-header h3 { font-size: .9rem; }
+.saved-detail-header .muted { font-size: .78rem; }
+

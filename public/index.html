@@ -124,6 +124,39 @@
       </div>
       <div id="ingredientsList" class="ingredient-chips"></div>
     </div>
+
+    <!-- ── Saved menus archive browser ── -->
+    <div class="section-title mt-2">
+      <h3>📚 Uložené jídelníčky</h3>
+      <button class="btn btn-secondary btn-sm" id="btnLoadSavedMenus">🔄 Načíst z databáze</button>
+    </div>
+    <div class="card saved-menus-filter" id="savedMenusFilter" style="display:none">
+      <div class="filter-row">
+        <div class="form-group">
+          <label>Rok</label>
+          <select id="menuFilterYear"></select>
+        </div>
+        <div class="form-group">
+          <label>Měsíc</label>
+          <select id="menuFilterMonth">
+            <option value="1">Leden</option>
+            <option value="2">Únor</option>
+            <option value="3">Březen</option>
+            <option value="4">Duben</option>
+            <option value="5">Květen</option>
+            <option value="6">Červen</option>
+            <option value="7">Červenec</option>
+            <option value="8">Srpen</option>
+            <option value="9">Září</option>
+            <option value="10">Říjen</option>
+            <option value="11">Listopad</option>
+            <option value="12">Prosinec</option>
+          </select>
+        </div>
+      </div>
+      <div id="savedMenuWeekList" class="saved-week-list"></div>
+    </div>
+    <div id="savedMenuDetail"></div>
   </section>
 
   <!-- ══════════════════════════════════════════════════════════
