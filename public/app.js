@@ -156,6 +156,16 @@ async function fetchMenu() {
     STATE.ingredients = extractIngredients(parsed);
     saveMenu();
 
+    // DB sync — fires menu.fetch audit
+    const weekKey = getWeekKey(new Date(fetchedAt));
+    dbPost('/api/db/menus', {
+      org_id: window.SYNC?.ORG_ID,
+      week_key: weekKey,
+      raw_text: trimmed,
+      days_json: parsed,
+      ingredients: STATE.ingredients,
+    });
+
     renderMenu();
     renderIngredients();
     setStatus('ok', 'Jídelníček načten');
@@ -479,6 +489,47 @@ function confirmPurchase() {
   STATE.cart = [];
   saveCart();
 
+  // DB sync — fires ledger.in audit automatically via dbRoutes
+  const dbEntries = items.map(item => ({
+    org_id: window.SYNC?.ORG_ID,
+    name: item.name,
+    food_group: item.foodGroup || null,
+    qty: item.qty,
+    unit: item.unit,
+    grams: toGrams(item.qty, item.unit),
+    price: item.price || 0,
+    store: item.store || (item.source === 'custom' ? 'Vlastní dodavatel' : 'Neuvedeno'),
+    promo: !!item.promo,
+    week_key: weekKey,
+    source: item.source === 'custom' ? 'manual' : 'shopping',
+  }));
+  dbPost('/api/db/ledger/bulk-in', { entries: dbEntries });
+
+  // Also create + confirm a shopping list record → fires shopping.confirm audit
+  dbPost('/api/db/shopping-lists', {
+    org_id: window.SYNC?.ORG_ID,
+    week_key: weekKey,
+    items: items.map(i => ({
+      food_group: i.foodGroup || null,
+      name: i.name,
+      qty: i.qty,
+      unit: i.unit,
+      needed_grams: i.neededGrams || null,
+      price: i.price || 0,
+      store: i.store || '',
+      promo: !!i.promo,
+      source: i.source === 'custom' ? 'custom' : 'norms',
+    })),
+  }).then(list => {
+    if (list?.id) {
+      // Immediately confirm it — this is the action that fires shopping.confirm audit
+      fetch(`/api/db/shopping-lists/${list.id}/confirm`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...window.AUTH.getAuthHeader() },
+      }).catch(() => {});
+    }
+  });
+
   renderWarehouse();
   renderStockBalance();
   renderFinance();
@@ -530,6 +581,25 @@ function consumeWeek() {
   }
 
   saveLedger();
+
+  // DB sync — fires ledger.out audit automatically via dbRoutes
+  const dbOutEntries = STATE.ledger
+    .filter(e => e.type === 'out' && e.weekKey === weekKey && e.source === 'consumption' && !e._synced)
+    .map(e => ({
+      org_id: window.SYNC?.ORG_ID,
+      name: e.name,
+      food_group: e.foodGroup || null,
+      qty: e.qty,
+      unit: e.unit,
+      grams: e.grams,
+      price: 0,
+      store: e.store,
+      promo: false,
+      week_key: weekKey,
+      source: 'consumption',
+    }));
+  if (dbOutEntries.length) dbPost('/api/db/ledger/bulk-out', { entries: dbOutEntries });
+
   renderWarehouse();
   renderStockBalance();
   renderFinance();
@@ -622,6 +692,13 @@ function deleteLedgerItem(id) {
   renderStockBalance();
   renderFinance();
   toast('Záznam odstraněn.', 'info');
+  // DB sync — fires ledger.delete audit (only works if item was synced to DB)
+  if (window.AUTH?.isLoggedIn()) {
+    fetch(`/api/db/ledger/${id}`, {
+      method: 'DELETE',
+      headers: window.AUTH.getAuthHeader(),
+    }).catch(() => {}); // non-blocking, item may not exist in DB yet (unsynced local item)
+  }
 }
 
 // Add manual income item
@@ -660,6 +737,12 @@ function initWarehouseForm() {
     });
 
     saveLedger();
+
+    // DB sync — fires ledger.in audit automatically via dbRoutes
+    dbPost('/api/db/ledger/bulk-in', {
+      entries: [{ org_id: window.SYNC?.ORG_ID, name, food_group: foodGroup, qty, unit, grams: toGrams(qty, unit), price, store, promo, week_key: weekKey, source: 'manual' }]
+    });
+
     renderWarehouse();
     renderStockBalance();
     renderFinance();
@@ -774,7 +857,50 @@ function renderAll() {
 // INIT
 // ══════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════
-// SPRINT 4 — AUDIT LOG
+// DB SYNC HELPER — fires DB writes alongside localStorage
+// Non-blocking: if DB call fails, localStorage write already
+// succeeded so the app keeps working. Audit is a side-effect.
+// ══════════════════════════════════════════════════════════
+
+async function dbPost(path, body) {
+  if (!window.AUTH?.isLoggedIn()) return null;
+  try {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...window.AUTH.getAuthHeader() },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.warn(`[dbSync] ${path} failed:`, err.error || res.status);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.warn(`[dbSync] ${path} error:`, e.message);
+    return null;
+  }
+}
+
+async function dbPut(path, body) {
+  if (!window.AUTH?.isLoggedIn()) return null;
+  try {
+    const res = await fetch(path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...window.AUTH.getAuthHeader() },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      console.warn(`[dbSync] PUT ${path} failed:`, err.error || res.status);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.warn(`[dbSync] PUT ${path} error:`, e.message);
+    return null;
+  }
+}
 // ══════════════════════════════════════════════════════════
 
 const AUDIT_ACTION_LABELS = {
@@ -1422,18 +1548,30 @@ function initAttendance() {
   const ageSelect = document.getElementById('attAgeGroup');
   if (ageSelect) ageSelect.addEventListener('change', renderAttendanceGrid);
 
-  document.getElementById('btnSaveAttendance')?.addEventListener('click', () => {
+  document.getElementById('btnSaveAttendance')?.addEventListener('click', async () => {
     // Read all inputs into state
+    const week = getCurrentAttWeek();
+    const rows = [];
     document.querySelectorAll('.att-meal-input').forEach(inp => {
-      const week = getCurrentAttWeek();
       const day = parseInt(inp.dataset.day);
       const meal = inp.dataset.meal;
+      const count = parseInt(inp.value) || 0;
       if (!attendanceData[week]) attendanceData[week] = {};
       if (!attendanceData[week][day]) attendanceData[week][day] = {};
-      attendanceData[week][day][meal] = parseInt(inp.value) || 0;
+      attendanceData[week][day][meal] = count;
+      rows.push({
+        org_id: window.SYNC?.ORG_ID,
+        week_key: week,
+        day_index: day,
+        meal,
+        age_group: document.getElementById('attAgeGroup')?.value || 'ms_3_6',
+        child_count: count,
+      });
     });
     saveAttendance();
     toast('Docházka uložena!', 'success');
+    // DB sync — non-blocking, fires audit automatically in dbRoutes
+    dbPut('/api/db/attendance/bulk', { rows });
   });
 
   document.getElementById('btnCopyPrevWeek')?.addEventListener('click', copyPrevWeek);
