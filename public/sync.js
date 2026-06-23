@@ -100,7 +100,11 @@ window.SYNC = (function () {
           method: 'POST', body: JSON.stringify({ entries: unsyncedIn.map(toDbRow) }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
-        unsyncedIn.forEach(e => e._synced = true);
+        const insertedIn = await res.json(); // DB rows include Supabase UUIDs
+        unsyncedIn.forEach((e, i) => {
+          e._synced = true;
+          if (insertedIn[i]?.id) e.id = insertedIn[i].id; // replace local timestamp ID with Supabase UUID
+        });
         report.ledger += unsyncedIn.length;
       }
       if (unsyncedOut.length) {
@@ -108,11 +112,15 @@ window.SYNC = (function () {
           method: 'POST', body: JSON.stringify({ entries: unsyncedOut.map(toDbRow) }),
         });
         if (!res.ok) throw new Error((await res.json()).error);
-        unsyncedOut.forEach(e => e._synced = true);
+        const insertedOut = await res.json(); // DB rows include Supabase UUIDs
+        unsyncedOut.forEach((e, i) => {
+          e._synced = true;
+          if (insertedOut[i]?.id) e.id = insertedOut[i].id; // replace local timestamp ID with Supabase UUID
+        });
         report.ledger += unsyncedOut.length;
       }
       if (report.ledger) {
-        saveLedger(); // persist the _synced flags locally
+        saveLedger(); // persist the _synced flags AND the Supabase UUIDs locally
         onProgress?.(`Sklad nahrán (${report.ledger} záznamů)…`);
       }
     } catch (e) { report.errors.push('Sklad: ' + e.message); }

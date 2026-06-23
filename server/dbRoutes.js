@@ -269,17 +269,24 @@ router.post('/ledger/bulk-out', async (req, res) => {
 });
 
 router.delete('/ledger/:id', requireRole('admin', 'vedouci'), async (req, res) => {
+  const { id } = req.params;
+  // Reject non-UUID IDs early — local-only (unsynced) items have timestamp IDs,
+  // not UUIDs, and passing them to Postgres causes a cast error.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(id)) {
+    return res.status(404).json({ deleted: false, reason: 'not_in_db' });
+  }
   const supabase = userScopedClient(req);
   // Fetch before deleting so we can record what was removed
   const { data: before } = await supabase
-    .from('inventory_ledger').select('*').eq('id', req.params.id).maybeSingle();
-  const { error } = await supabase.from('inventory_ledger').delete().eq('id', req.params.id);
+    .from('inventory_ledger').select('*').eq('id', id).maybeSingle();
+  const { error } = await supabase.from('inventory_ledger').delete().eq('id', id);
   if (error) return res.status(500).json({ error: error.message });
   await audit(req, {
     action: 'ledger.delete',
     entity: 'inventory_ledger',
-    entity_id: req.params.id,
-    description: `Záznam skladu smazán: ${before?.name || req.params.id}`,
+    entity_id: id,
+    description: `Záznam skladu smazán: ${before?.name || id}`,
     before_json: before || null,
   });
   res.json({ deleted: true });
