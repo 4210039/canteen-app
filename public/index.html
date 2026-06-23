@@ -6,6 +6,7 @@
   <title>Jídelna – Správce nákupů</title>
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -104,6 +105,7 @@
         <p class="muted">Automaticky stažen z ms-harmonie.cz</p>
       </div>
       <div class="panel-actions">
+        <button class="btn btn-secondary" onclick="openImport('menu')">📥 Import</button>
         <button class="btn btn-primary" id="btnFetchMenu">🔄 Načíst jídelníček</button>
         <span class="last-check muted" id="lastCheck"></span>
       </div>
@@ -168,7 +170,10 @@
         <h2>Nákupní seznam</h2>
         <p class="muted">Vychází z výpočtu surovin (Docházka → Přepočítat) · Lidl · Kaufland · Albert · Globus · Kupi.cz · vlastní dodavatel</p>
       </div>
-      <button class="btn btn-primary" id="btnGenOffers">🧮 Načíst z výpočtu surovin</button>
+      <div class="panel-actions">
+        <button class="btn btn-secondary" onclick="openImport('offers')">📥 Import</button>
+        <button class="btn btn-primary" id="btnGenOffers">🧮 Načíst z výpočtu surovin</button>
+      </div>
     </div>
 
     <div id="offersContent">
@@ -242,6 +247,7 @@
         <p class="muted">Aktuální stav zásob (příjem − výdej) a kompletní historie pohybů</p>
       </div>
       <div class="panel-actions">
+        <button class="btn btn-secondary" onclick="openImport('warehouse')">📥 Import</button>
         <button class="btn btn-secondary" id="btnConsumeWeek">📤 Odepsat spotřebu týdne</button>
         <button class="btn btn-secondary" id="btnAddItem">+ Ruční příjem</button>
       </div>
@@ -323,9 +329,12 @@
         <h2>Finanční přehled</h2>
         <p class="muted">Náklady na suroviny · Týdenní a měsíční souhrny</p>
       </div>
-      <div class="form-group inline">
-        <label>Počet dětí:</label>
-        <input type="number" id="childCount" value="25" min="1" max="200" style="width:70px" />
+      <div class="panel-actions">
+        <button class="btn btn-secondary" onclick="openImport('finance')">📥 Import</button>
+        <div class="form-group inline">
+          <label>Počet dětí:</label>
+          <input type="number" id="childCount" value="25" min="1" max="200" style="width:70px" />
+        </div>
       </div>
     </div>
 
@@ -469,6 +478,7 @@
         <p class="muted">Počty přítomných dětí na každé jídlo · základ pro výpočet surovin</p>
       </div>
       <div class="panel-actions">
+        <button class="btn btn-secondary" onclick="openImport('attendance')">📥 Import</button>
         <button class="btn btn-secondary btn-sm" id="btnCopyPrevWeek">📋 Kopírovat minulý týden</button>
         <button class="btn btn-primary" id="btnSaveAttendance">💾 Uložit docházku</button>
       </div>
@@ -523,7 +533,10 @@
         <h2>Výživové normy – Spotřební koš</h2>
         <p class="muted">Vyhl. č. 107/2005 Sb. · Tabulka 1 · Měsíční plnění na strávníka a den</p>
       </div>
-      <button class="btn btn-primary" id="btnCheckCompliance">📊 Zkontrolovat plnění</button>
+      <div class="panel-actions">
+        <button class="btn btn-secondary" onclick="openImport('norms')">📥 Import</button>
+        <button class="btn btn-primary" id="btnCheckCompliance">📊 Zkontrolovat plnění</button>
+      </div>
     </div>
 
     <!-- Norm reference table -->
@@ -549,9 +562,73 @@
   <!-- ── Toast notifications ── -->
   <div id="toast" class="toast hidden"></div>
 
+  <!-- ══════════════════════════════════════════════════════════
+       IMPORT MODAL
+  ═══════════════════════════════════════════════════════════ -->
+  <div id="importOverlay" class="import-overlay hidden" onclick="closeImportOnBackdrop(event)">
+    <div class="import-modal">
+      <div class="import-modal-header">
+        <h2 id="importTitle">📥 Import dat</h2>
+        <button class="import-close" onclick="closeImport()" title="Zavřít">✕</button>
+      </div>
+
+      <!-- Source tabs -->
+      <div class="import-source-tabs">
+        <button class="import-src-tab active" data-src="file" onclick="switchImportSrc('file')">📁 Soubor</button>
+        <button class="import-src-tab" data-src="paste" onclick="switchImportSrc('paste')">📋 Vložit text</button>
+      </div>
+
+      <!-- File drop zone -->
+      <div id="importFilePane" class="import-pane">
+        <div id="importDropZone" class="import-drop-zone"
+             onclick="document.getElementById('importFileInput').click()"
+             ondragover="importDragOver(event)"
+             ondragleave="importDragLeave(event)"
+             ondrop="importDrop(event)">
+          <span class="drop-icon">📂</span>
+          <p>Přetáhněte soubor sem nebo <strong>klikněte pro výběr</strong></p>
+          <p class="muted drop-hint">CSV · XLSX · XLS · TXT · (Word &amp; PDF → použijte záložku „Vložit text")</p>
+          <input type="file" id="importFileInput" accept=".csv,.txt,.xlsx,.xls,.docx,.doc,.pdf" style="display:none" onchange="importFileSelected(this.files[0])" />
+        </div>
+        <div id="importFileInfo" class="import-file-info hidden"></div>
+      </div>
+
+      <!-- Paste pane -->
+      <div id="importPastePane" class="import-pane hidden">
+        <p class="muted" style="margin-bottom:.5rem">Vložte text nebo CSV data (záhlaví v prvním řádku):</p>
+        <textarea id="importPasteArea" class="import-paste-area" placeholder="Vložte text zde…&#10;&#10;Pro CSV formát (automaticky rozpoznáno):&#10;název,množství,jednotka,cena&#10;Máslo,2,kg,89.90&#10;Mléko,5,l,24.50"></textarea>
+        <button class="btn btn-secondary btn-sm" style="margin-top:.5rem" onclick="importParsePaste()">🔍 Analyzovat</button>
+      </div>
+
+      <!-- Column mapping -->
+      <div id="importMappingPane" class="import-pane hidden">
+        <div class="import-mapping-header">
+          <h3>Mapování sloupců</h3>
+          <span id="importRowCount" class="muted"></span>
+        </div>
+        <div id="importMappingGrid" class="import-mapping-grid"></div>
+      </div>
+
+      <!-- Preview -->
+      <div id="importPreviewPane" class="import-pane hidden">
+        <h3 style="margin-bottom:.5rem">Náhled dat <span id="importPreviewCount" class="muted"></span></h3>
+        <div class="import-preview-wrap">
+          <table id="importPreviewTable" class="import-preview-table"></table>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="import-actions">
+        <button class="btn btn-ghost" onclick="closeImport()">Zrušit</button>
+        <button class="btn btn-primary" id="btnDoImport" onclick="doImport()" disabled>✅ Importovat</button>
+      </div>
+    </div>
+  </div>
+
   <script src="norms.js"></script>
   <script src="auth.js"></script>
   <script src="sync.js"></script>
+  <script src="import.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -540,6 +540,136 @@ input, select { font: inherit; }
 .audit-action.role-change  { background: var(--blue-pale);   color: var(--blue); }
 .audit-action.auth-login   { background: var(--surface);     color: var(--ink-mid); }
 .audit-action.default      { background: var(--surface);     color: var(--ink-mid); }
+
+/* ══════════════════════════════════════════════════════════
+   Import Modal
+═══════════════════════════════════════════════════════════ */
+.import-overlay {
+  position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.import-overlay.hidden { display: none; }
+
+.import-modal {
+  background: var(--white); border-radius: 14px;
+  width: 100%; max-width: 680px; max-height: 90vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  overflow: hidden;
+}
+
+.import-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.import-modal-header h2 { font-size: 1rem; }
+.import-close {
+  background: none; border: none; cursor: pointer;
+  font-size: 1.1rem; color: var(--ink-mid); padding: .2rem .4rem;
+  border-radius: 6px; transition: background .15s;
+}
+.import-close:hover { background: var(--red-pale); color: var(--red); }
+
+.import-source-tabs {
+  display: flex; border-bottom: 2px solid var(--border);
+  background: var(--white);
+}
+.import-src-tab {
+  flex: 1; background: none; border: none; cursor: pointer;
+  padding: .6rem 1rem; font-size: .85rem; font-weight: 500;
+  color: var(--ink-mid); border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+}
+.import-src-tab.active { color: var(--green); border-bottom-color: var(--green); }
+.import-src-tab:hover:not(.active) { color: var(--ink); }
+
+.import-pane {
+  padding: 1rem 1.25rem;
+}
+.import-pane.hidden { display: none; }
+
+/* Scrollable inner area */
+.import-modal > .import-pane,
+.import-modal > div.import-pane {
+  overflow-y: auto;
+}
+
+.import-drop-zone {
+  border: 2px dashed var(--border); border-radius: 10px;
+  padding: 2rem 1.5rem; text-align: center; cursor: pointer;
+  transition: border-color .2s, background .2s;
+  background: var(--surface);
+}
+.import-drop-zone:hover,
+.import-drop-zone.drag-over {
+  border-color: var(--green); background: var(--green-pale);
+}
+.drop-icon { font-size: 2rem; display: block; margin-bottom: .5rem; }
+.drop-hint { font-size: .75rem; color: var(--ink-light); margin-top: .35rem; }
+
+.import-file-info {
+  margin-top: .75rem; font-size: .84rem; color: var(--ink-mid);
+  padding: .5rem .75rem; background: var(--surface); border-radius: 8px;
+}
+.import-file-info.hidden { display: none; }
+.import-warn  { color: var(--amber); }
+.import-error { color: var(--red); }
+
+.import-paste-area {
+  width: 100%; height: 180px; resize: vertical;
+  border: 1.5px solid var(--border); border-radius: 8px;
+  padding: .65rem .75rem; font-size: .84rem; font-family: 'Consolas', monospace;
+  transition: border-color .2s;
+}
+.import-paste-area:focus { outline: none; border-color: var(--green); }
+
+.import-mapping-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: .65rem;
+}
+.import-mapping-grid {
+  display: grid; gap: .5rem;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+.import-map-row {
+  display: flex; flex-direction: column; gap: .25rem;
+}
+.import-map-row label {
+  font-size: .75rem; font-weight: 500; color: var(--ink-mid);
+}
+.import-map-row label.required::after { content: ' *'; color: var(--red); }
+.import-map-row select {
+  padding: .35rem .5rem; border: 1.5px solid var(--border); border-radius: 7px;
+  font-size: .82rem;
+}
+.import-map-row select:focus { outline: none; border-color: var(--green); }
+
+.import-preview-wrap {
+  overflow-x: auto; max-height: 180px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.import-preview-table {
+  border-collapse: collapse; width: 100%; font-size: .8rem;
+}
+.import-preview-table th,
+.import-preview-table td {
+  padding: .4rem .6rem; border-bottom: 1px solid var(--border);
+  white-space: nowrap; text-align: left;
+}
+.import-preview-table th {
+  background: var(--surface); font-weight: 600; color: var(--ink-mid);
+  position: sticky; top: 0;
+}
+.import-preview-table tr:hover td { background: var(--green-pale); }
+
+.import-actions {
+  display: flex; justify-content: flex-end; gap: .6rem;
+  padding: .85rem 1.25rem; border-top: 1px solid var(--border);
+  background: var(--surface);
+}
 .audit-desc { color: var(--ink); }
 .audit-who  { color: var(--ink-mid); white-space: nowrap; }
 .audit-when { color: var(--ink-light); white-space: nowrap; font-size: .75rem; }
