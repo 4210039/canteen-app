@@ -400,4 +400,23 @@ router.post('/audit/login', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Clear all org data (admin only) ──────────────────────────
+// Deletes all inventory_ledger, attendance, menus, shopping_lists
+// rows for the org. Used by the "Smazat všechna data" button.
+router.delete('/clear/:orgId', requireRole('admin'), async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = userScopedClient(req);
+  const tables = ['inventory_ledger', 'attendance', 'menus', 'shopping_lists'];
+  for (const table of tables) {
+    const { error } = await supabase.from(table).delete().eq('org_id', orgId);
+    if (error) return res.status(500).json({ error: `${table}: ${error.message}` });
+  }
+  await audit(req, {
+    action: 'data.clear',
+    entity: 'all',
+    description: `Smazána všechna data org ${orgId}`,
+  });
+  res.json({ ok: true });
+});
+
 module.exports = router;

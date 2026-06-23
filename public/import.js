@@ -408,9 +408,9 @@ function doCsvImport() {
 // ── Section-specific importers ────────────────────────────
 
 function importAttendance(data, val, errors) {
-  // Load existing attendance
   const attKey = typeof getWeekKey === 'function' ? getWeekKey() : '';
-  const stored = JSON.parse(localStorage.getItem('canteen_attendance') || '{}');
+  // Merge into in-memory attendanceData (attendance module's state)
+  const stored = (typeof attendanceData !== 'undefined' ? attendanceData : {});
 
   data.forEach((row, i) => {
     const dateRaw = val(row, 'date');
@@ -426,14 +426,13 @@ function importAttendance(data, val, errors) {
     stored[day] = entry;
   });
 
-  localStorage.setItem('canteen_attendance', JSON.stringify(stored));
   // Refresh attendance grid if visible
   if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
 }
 
 function importOffers(data, val, errors) {
   let count = 0;
-  const cart = JSON.parse(localStorage.getItem('canteen_cart') || '[]');
+  const cart = (typeof STATE !== 'undefined' ? (STATE.cart || []) : []);
 
   data.forEach((row, i) => {
     const name = val(row, 'name');
@@ -452,7 +451,6 @@ function importOffers(data, val, errors) {
     count++;
   });
 
-  localStorage.setItem('canteen_cart', JSON.stringify(cart));
   if (typeof STATE !== 'undefined') STATE.cart = cart;
   if (typeof renderCart === 'function') renderCart();
   if (typeof renderShoppingPanel === 'function') renderShoppingPanel();
@@ -496,7 +494,15 @@ function importWarehouse(data, val, errors) {
   });
 
   if (typeof STATE !== 'undefined') STATE.ledger = ledger;
-  if (typeof saveLedger === 'function') saveLedger();
+  // Persist new ledger entries to DB
+  const newEntries = ledger.filter(e => !e._synced);
+  if (newEntries.length && typeof dbPost === 'function' && window.AUTH?.isLoggedIn()) {
+    const orgId = window.SYNC?.ORG_ID;
+    const inRows  = newEntries.filter(e => e.type === 'in').map(e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: e.source }));
+    const outRows = newEntries.filter(e => e.type === 'out').map(e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: e.source }));
+    if (inRows.length)  dbPost('/api/db/ledger/bulk-in',  { entries: inRows });
+    if (outRows.length) dbPost('/api/db/ledger/bulk-out', { entries: outRows });
+  }
   if (typeof renderWarehouse === 'function') renderWarehouse();
   if (typeof renderFinance === 'function') renderFinance();
   return count;

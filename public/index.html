@@ -10,9 +10,8 @@
 </head>
 <body>
 
-  <!-- ── Login overlay (Sprint 2) ── -->
-  <!-- Shown when DB is configured but user isn't logged in. Hidden entirely
-       (and app works on localStorage) when DB isn't configured at all. -->
+  <!-- ── Login overlay ── -->
+  <!-- Always shown until user authenticates. Supabase is required. -->
   <div id="loginOverlay" class="login-overlay hidden">
     <div class="login-card">
       <div class="login-brand">
@@ -412,19 +411,18 @@
     </div>
 
     <div class="card settings-card hidden" id="syncCard">
-      <h3>☁️ Synchronizace s databází</h3>
-      <p class="muted">Vaše data jsou primárně uložená v tomto prohlížeči. Synchronizace je nahraje
-      do cloudu (Supabase), aby byla dostupná i z jiných zařízení a pro ostatní uživatele.</p>
+      <h3>☁️ Data v Supabase</h3>
+      <p class="muted">Data jsou uložena výhradně v databázi Supabase. Toto tlačítko znovu načte
+      aktuální stav ze serveru do paměti (např. po úpravách jiným uživatelem).</p>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem">
-        <button class="btn btn-primary btn-sm" id="btnSyncPush">⬆️ Nahrát do cloudu</button>
-        <button class="btn btn-secondary btn-sm" id="btnSyncPull">⬇️ Stáhnout z cloudu</button>
+        <button class="btn btn-primary btn-sm" id="btnSyncPush">🔄 Obnovit data ze serveru</button>
       </div>
       <div id="syncStatus" class="muted" style="margin-top:.6rem"></div>
     </div>
 
     <div class="card settings-card" id="accountCard">
       <h3>👤 Účet</h3>
-      <div id="accountInfo" class="muted">Přihlášení není nakonfigurováno (databáze není zapojena).</div>
+      <div id="accountInfo" class="muted">Pro přístup k aplikaci se přihlaste.</div>
       <button class="btn btn-secondary btn-sm hidden" id="btnLogout" style="margin-top:.75rem">Odhlásit se</button>
     </div>
 
