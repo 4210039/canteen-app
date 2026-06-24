@@ -7,11 +7,16 @@
   <link rel="stylesheet" href="style.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Export: PDF generation -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <!-- Export: Word (.docx) generation -->
+  <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
 </head>
 <body>
 
-  <!-- ── Login overlay ── -->
-  <!-- Always shown until user authenticates. Supabase is required. -->
+  <!-- ── Login overlay (Sprint 2) ── -->
+  <!-- Shown when DB is configured but user isn't logged in. Hidden entirely
+       (and app works on localStorage) when DB isn't configured at all. -->
   <div id="loginOverlay" class="login-overlay hidden">
     <div class="login-card">
       <div class="login-brand">
@@ -105,6 +110,7 @@
       </div>
       <div class="panel-actions">
         <button class="btn btn-secondary" onclick="openImport('menu')">📥 Import</button>
+        <button class="btn btn-secondary" onclick="openExport('menu')">📤 Export</button>
         <button class="btn btn-primary" id="btnFetchMenu">🔄 Načíst jídelníček</button>
         <span class="last-check muted" id="lastCheck"></span>
       </div>
@@ -171,6 +177,7 @@
       </div>
       <div class="panel-actions">
         <button class="btn btn-secondary" onclick="openImport('offers')">📥 Import</button>
+        <button class="btn btn-secondary" onclick="openExport('offers')">📤 Export</button>
         <button class="btn btn-primary" id="btnGenOffers">🧮 Načíst z výpočtu surovin</button>
       </div>
     </div>
@@ -247,6 +254,7 @@
       </div>
       <div class="panel-actions">
         <button class="btn btn-secondary" onclick="openImport('warehouse')">📥 Import</button>
+        <button class="btn btn-secondary" onclick="openExport('warehouse')">📤 Export</button>
         <button class="btn btn-secondary" id="btnConsumeWeek">📤 Odepsat spotřebu týdne</button>
         <button class="btn btn-secondary" id="btnAddItem">+ Ruční příjem</button>
       </div>
@@ -330,6 +338,7 @@
       </div>
       <div class="panel-actions">
         <button class="btn btn-secondary" onclick="openImport('finance')">📥 Import</button>
+        <button class="btn btn-secondary" onclick="openExport('finance')">📤 Export</button>
         <div class="form-group inline">
           <label>Počet dětí:</label>
           <input type="number" id="childCount" value="25" min="1" max="200" style="width:70px" />
@@ -411,18 +420,19 @@
     </div>
 
     <div class="card settings-card hidden" id="syncCard">
-      <h3>☁️ Data v Supabase</h3>
-      <p class="muted">Data jsou uložena výhradně v databázi Supabase. Toto tlačítko znovu načte
-      aktuální stav ze serveru do paměti (např. po úpravách jiným uživatelem).</p>
+      <h3>☁️ Synchronizace s databází</h3>
+      <p class="muted">Vaše data jsou primárně uložená v tomto prohlížeči. Synchronizace je nahraje
+      do cloudu (Supabase), aby byla dostupná i z jiných zařízení a pro ostatní uživatele.</p>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem">
-        <button class="btn btn-primary btn-sm" id="btnSyncPush">🔄 Obnovit data ze serveru</button>
+        <button class="btn btn-primary btn-sm" id="btnSyncPush">⬆️ Nahrát do cloudu</button>
+        <button class="btn btn-secondary btn-sm" id="btnSyncPull">⬇️ Stáhnout z cloudu</button>
       </div>
       <div id="syncStatus" class="muted" style="margin-top:.6rem"></div>
     </div>
 
     <div class="card settings-card" id="accountCard">
       <h3>👤 Účet</h3>
-      <div id="accountInfo" class="muted">Pro přístup k aplikaci se přihlaste.</div>
+      <div id="accountInfo" class="muted">Přihlášení není nakonfigurováno (databáze není zapojena).</div>
       <button class="btn btn-secondary btn-sm hidden" id="btnLogout" style="margin-top:.75rem">Odhlásit se</button>
     </div>
 
@@ -477,6 +487,7 @@
       </div>
       <div class="panel-actions">
         <button class="btn btn-secondary" onclick="openImport('attendance')">📥 Import</button>
+        <button class="btn btn-secondary" onclick="openExport('attendance')">📤 Export</button>
         <button class="btn btn-secondary btn-sm" id="btnCopyPrevWeek">📋 Kopírovat minulý týden</button>
         <button class="btn btn-primary" id="btnSaveAttendance">💾 Uložit docházku</button>
       </div>
@@ -533,6 +544,7 @@
       </div>
       <div class="panel-actions">
         <button class="btn btn-secondary" onclick="openImport('norms')">📥 Import</button>
+        <button class="btn btn-secondary" onclick="openExport('norms')">📤 Export</button>
         <button class="btn btn-primary" id="btnCheckCompliance">📊 Zkontrolovat plnění</button>
       </div>
     </div>
@@ -623,10 +635,63 @@
     </div>
   </div>
 
+  <!-- ══════════════════════════════════════════════════════════
+       EXPORT MODAL
+       Reuses all import modal CSS — no new styles needed.
+  ═══════════════════════════════════════════════════════════ -->
+  <div id="exportOverlay" class="import-overlay hidden">
+    <div class="import-modal">
+
+      <div class="import-modal-header">
+        <h2 id="exportTitle">📤 Export dat</h2>
+        <button class="import-close" onclick="closeExport()" title="Zavřít">✕</button>
+      </div>
+
+      <!-- Description -->
+      <div class="import-pane" style="padding-bottom:0">
+        <p class="muted" id="exportDescription" style="font-size:.88rem"></p>
+
+        <!-- Warehouse-only filter -->
+        <div id="exportFilterRow" style="display:none;margin-top:.75rem">
+          <label style="font-size:.85rem;font-weight:600;margin-right:.5rem">Filtr:</label>
+          <select id="exportWarehouseFilter" style="font-size:.85rem;padding:.25rem .5rem;border:1px solid var(--border);border-radius:6px">
+            <option value="all">Vše (příjmy + výdeje)</option>
+            <option value="in">Pouze příjmy</option>
+            <option value="out">Pouze výdeje</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Preview -->
+      <div class="import-pane" style="flex:1;overflow-y:auto">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+          <h3 style="font-size:.88rem;font-weight:600">Náhled</h3>
+          <span id="exportRowCount" class="muted" style="font-size:.8rem"></span>
+        </div>
+        <div style="overflow-x:auto">
+          <table id="exportPreviewTable" class="import-preview-table"></table>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="import-actions" style="flex-wrap:wrap;gap:.4rem">
+        <button class="btn btn-ghost" onclick="closeExport()">Zrušit</button>
+        <button class="btn btn-secondary btn-sm" id="btnExportCsv">⬇️ CSV</button>
+        <button class="btn btn-secondary btn-sm" id="btnExportXlsx">⬇️ XLSX</button>
+        <button class="btn btn-secondary btn-sm" id="btnExportJson">⬇️ JSON</button>
+        <button class="btn btn-secondary btn-sm" id="btnExportXml">⬇️ XML</button>
+        <button class="btn btn-secondary btn-sm" id="btnExportPdf">⬇️ PDF</button>
+        <button class="btn btn-primary btn-sm"   id="btnExportDocx">⬇️ Word</button>
+      </div>
+
+    </div>
+  </div>
+
   <script src="norms.js"></script>
   <script src="auth.js"></script>
   <script src="sync.js"></script>
   <script src="import.js"></script>
+  <script src="export.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

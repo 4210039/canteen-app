@@ -1,7 +1,6 @@
 /* ═══════════════════════════════════════════════════════════
    Canteen Smart Manager – app.js
-   All state is persisted to Supabase (via the Express API).
-   localStorage is NOT used — Supabase is the single source of truth.
+   All state is persisted to localStorage under 'canteen_*'
    API calls go through the local Express proxy (/api/*)
 
    DATA MODEL (ledger-based warehouse):
@@ -35,50 +34,45 @@ function toGrams(qty, unit) {
   return Math.round((parseFloat(qty) || 0) * (UNIT_TO_GRAMS[unit] || 100));
 }
 
-// ── Persistence (Supabase only — no localStorage) ──────────
-// STATE is the in-memory cache for the current session.
-// All writes go through the inline dbPost/dbPut calls at each
-// mutation site.  The save* helpers are kept as intentional
-// no-ops so call-sites compile without changes.
-function saveMenu()    { /* DB write already done inline */ }
-function saveLedger()  { /* DB write already done inline */ }
-function saveCart()    { /* cart is session-only, confirmed to DB on purchase */ }
-
-// Load all relevant data from Supabase into STATE.
-// Called once after login; also callable to refresh state.
-async function loadAll() {
-  if (!window.AUTH?.isLoggedIn()) return;
-  const orgId = window.SYNC?.ORG_ID;
-  if (!orgId) return;
-
-  STATE.cart = []; // cart is always a fresh draft per session
-
-  // Ledger
+// ── Persistence ────────────────────────────────────────────
+function save(key, val) {
+  try { localStorage.setItem('canteen_' + key, JSON.stringify(val)); } catch (e) {}
+}
+function load(key, fallback = null) {
   try {
-    const res = await fetch(`/api/db/ledger/${orgId}`, { headers: window.AUTH.getAuthHeader() });
-    if (res.ok) {
-      const rows = await res.json();
-      STATE.ledger = rows.map(r => ({
-        id: r.id, type: r.type, name: r.name, foodGroup: r.food_group,
-        qty: r.qty, unit: r.unit, grams: r.grams, price: r.price,
-        store: r.store, promo: r.promo, date: r.created_at, weekKey: r.week_key,
-        source: r.source, _synced: true,
-      }));
-    }
-  } catch (e) { console.warn('[loadAll] ledger:', e.message); }
+    const s = localStorage.getItem('canteen_' + key);
+    return s !== null ? JSON.parse(s) : fallback;
+  } catch (e) { return fallback; }
+}
+function loadAll() {
+  STATE.currentMenu  = load('menu',      null);
+  STATE.ingredients  = load('ingredients', []);
+  STATE.ledger       = load('ledger',    migrateOldData());
+  STATE.cart         = load('cart',      []);
+}
+function saveMenu()    { save('menu', STATE.currentMenu); save('ingredients', STATE.ingredients); }
+function saveLedger()  { save('ledger', STATE.ledger); }
+function saveCart()    { save('cart', STATE.cart); }
 
-  // Current week's menu
-  try {
-    const weekKey = getWeekKey();
-    const res = await fetch(`/api/db/menus/${orgId}/${weekKey}`, { headers: window.AUTH.getAuthHeader() });
-    if (res.ok) {
-      const row = await res.json();
-      if (row && row.days_json) {
-        STATE.currentMenu = { fetchedAt: row.fetched_at, raw: row.raw_text, days: row.days_json };
-        STATE.ingredients = row.ingredients || [];
-      }
-    }
-  } catch (e) { console.warn('[loadAll] menu:', e.message); }
+// One-time migration from old 'warehouse' array (pre-ledger) so existing users don't lose data
+function migrateOldData() {
+  const oldWarehouse = load('warehouse', null);
+  if (!oldWarehouse || !oldWarehouse.length) return [];
+  return oldWarehouse.map(item => ({
+    id: item.id || (Date.now() + Math.random()),
+    type: 'in',
+    name: item.name,
+    foodGroup: null,
+    qty: item.qty,
+    unit: item.unit,
+    grams: toGrams(item.qty, item.unit),
+    price: item.price || 0,
+    store: item.store || 'Neznámý',
+    promo: !!item.promo,
+    date: item.addedAt || new Date().toISOString(),
+    weekKey: item.weekKey || getWeekKey(),
+    source: 'manual',
+  }));
 }
 
 // ── Week key (YYYY-WNN) ────────────────────────────────────
@@ -833,20 +827,10 @@ function initSettings() {
     }
   });
 
-  document.getElementById('btnClearData').addEventListener('click', async () => {
-    if (!confirm('Opravdu smazat všechna data v databázi? Tato akce je nevratná.')) return;
-    const orgId = window.SYNC?.ORG_ID;
-    if (!orgId || !window.AUTH?.isLoggedIn()) { toast('Musíte být přihlášeni.', 'error'); return; }
-    try {
-      const res = await fetch(`/api/db/clear/${orgId}`, {
-        method: 'DELETE',
-        headers: window.AUTH.getAuthHeader(),
-      });
-      if (!res.ok) throw new Error((await res.json()).error || res.status);
-    } catch (e) {
-      toast('Chyba při mazání dat: ' + e.message, 'error'); return;
-    }
-    STATE.ledger = []; STATE.cart = []; STATE.currentMenu = null; STATE.ingredients = [];
+  document.getElementById('btnClearData').addEventListener('click', () => {
+    if (!confirm('Opravdu smazat všechna data? Tato akce je nevratná.')) return;
+    ['menu','ingredients','ledger','cart','warehouse','purchases','attendance'].forEach(k => localStorage.removeItem('canteen_' + k));
+    loadAll();
     renderAll();
     toast('Všechna data byla smazána.', 'info');
   });
@@ -873,7 +857,9 @@ function renderAll() {
 // INIT
 // ══════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════
-// DB WRITE HELPERS — used throughout for all mutations
+// DB SYNC HELPER — fires DB writes alongside localStorage
+// Non-blocking: if DB call fails, localStorage write already
+// succeeded so the app keeps working. Audit is a side-effect.
 // ══════════════════════════════════════════════════════════
 
 async function dbPost(path, body) {
@@ -1000,25 +986,22 @@ function initAuditTab() {
 }
 
 // ══════════════════════════════════════════════════════════
-// AUTH BOOTSTRAP — gates the app behind login (Supabase required)
+// SPRINT 2 — AUTH BOOTSTRAP
+// Gates the app behind login when DB is configured; otherwise the
+// app runs exactly as before (Sprint 1 localStorage-only fallback).
 // ══════════════════════════════════════════════════════════
 
 async function initAuthFlow() {
   const { dbConfigured } = await window.AUTH.init();
 
   if (!dbConfigured) {
-    // Database not configured — show a clear error instead of a broken app.
-    document.getElementById('loginOverlay').classList.remove('hidden');
-    const errEl = document.getElementById('loginError');
-    if (errEl) {
-      errEl.textContent = 'Databáze není nakonfigurována. Kontaktujte správce (chybí SUPABASE_URL / SUPABASE_ANON_KEY).';
-      errEl.classList.remove('hidden');
-    }
+    // No database configured at all — skip auth entirely, app works
+    // exactly like pre-Sprint-2 on localStorage only.
     return;
   }
 
   if (window.AUTH.isLoggedIn()) {
-    await showApp();
+    showApp();
   } else {
     showLogin();
   }
@@ -1030,20 +1013,10 @@ function showLogin() {
   document.getElementById('loginOverlay').classList.remove('hidden');
 }
 
-async function showApp() {
+function showApp() {
   document.getElementById('loginOverlay').classList.add('hidden');
   applyRoleGating();
   renderAccountInfo();
-  // Load all data from Supabase now that we're authenticated
-  setStatus('loading', 'Načítám data…');
-  await loadAll();
-  await loadAttendance();
-  renderAll();
-  if (STATE.currentMenu?.fetchedAt) {
-    document.getElementById('lastCheck').textContent =
-      'Poslední kontrola: ' + new Date(STATE.currentMenu.fetchedAt).toLocaleString('cs-CZ');
-  }
-  setStatus('ok', 'Data načtena');
 }
 
 function applyRoleGating() {
@@ -1131,7 +1104,7 @@ function wireLoginForms() {
     errEl.classList.add('hidden');
     try {
       await window.AUTH.signIn(email, password);
-      await showApp();
+      showApp();
       toast('Přihlášení úspěšné!', 'success');
     } catch (e) {
       errEl.textContent = e.message;
@@ -1153,7 +1126,7 @@ function wireLoginForms() {
         okEl.textContent = 'Účet vytvořen! Zkontrolujte e-mail a potvrďte registraci, pak se přihlaste.';
         okEl.classList.remove('hidden');
       } else {
-        await showApp();
+        showApp();
         toast('Účet vytvořen a jste přihlášeni!', 'success');
       }
     } catch (e) {
@@ -1172,23 +1145,22 @@ function wireLoginForms() {
 
   document.getElementById('btnSyncPush')?.addEventListener('click', async () => {
     const statusEl = document.getElementById('syncStatus');
-    statusEl.textContent = 'Obnovuji…';
-    const report = await window.SYNC.refreshFromCloud(msg => statusEl.textContent = msg);
-    renderWarehouse(); renderStockBalance(); renderFinance();
+    statusEl.textContent = 'Synchronizuji…';
+    const report = await window.SYNC.pushToCloud(msg => statusEl.textContent = msg);
     statusEl.textContent = report.errors.length
-      ? `Chyba: ${report.errors.join('; ')}`
-      : `✅ Data obnovena ze Supabase (sklad: ${report.ledger} záznamů)`;
+      ? `Hotovo s chybami: ${report.errors.join('; ')}`
+      : `✅ Nahráno: menu=${report.menu}, docházka=${report.attendance}, sklad=${report.ledger}`;
   });
 
-  // Keep btnSyncPull as alias for the same action
   document.getElementById('btnSyncPull')?.addEventListener('click', async () => {
+    if (!confirm('Stažení z cloudu přepíše lokální sklad daty z databáze. Pokračovat?')) return;
     const statusEl = document.getElementById('syncStatus');
-    statusEl.textContent = 'Obnovuji…';
-    const report = await window.SYNC.refreshFromCloud(msg => statusEl.textContent = msg);
+    statusEl.textContent = 'Stahuji…';
+    const report = await window.SYNC.pullFromCloud(msg => statusEl.textContent = msg);
     renderWarehouse(); renderStockBalance(); renderFinance();
     statusEl.textContent = report.errors.length
-      ? `Chyba: ${report.errors.join('; ')}`
-      : `✅ Data obnovena ze Supabase (sklad: ${report.ledger} záznamů)`;
+      ? `Hotovo s chybami: ${report.errors.join('; ')}`
+      : `✅ Staženo: sklad=${report.ledger} záznamů`;
   });
 }
 
@@ -1377,6 +1349,7 @@ function initSavedMenusBrowser() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  loadAll();
   initTabs();
   initWarehouseForm();
   initSettings();
@@ -1386,8 +1359,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initNorms();
   initCustomItemForm();
   initAuditTab();
-  initAuthFlow(); // will call loadAll() + renderAll() after login
+  initAuthFlow();
   initSavedMenusBrowser();
+  initExport();
 
   // Button bindings
   document.getElementById('btnFetchMenu').addEventListener('click', fetchMenu);
@@ -1397,6 +1371,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Child count change → re-render finance
   document.getElementById('childCount').addEventListener('change', renderFinance);
+
+  // Render saved data on load
+  renderAll();
+
+  // Restore last check label
+  if (STATE.currentMenu?.fetchedAt) {
+    document.getElementById('lastCheck').textContent =
+      'Poslední kontrola: ' + new Date(STATE.currentMenu.fetchedAt).toLocaleString('cs-CZ');
+  }
 
   setStatus('', 'Připraveno');
 });
@@ -1415,26 +1398,11 @@ const MEALS_LIST = [
 // Attendance state: { [weekKey]: { [dayIndex]: { presnidavka, obed, svacina } } }
 let attendanceData = {};
 
-function loadAttendance() { /* replaced by async version below */ }
-function saveAttendance() { /* DB write done inline in btnSaveAttendance */ }
-
-// Load attendance for all cached weeks from DB.
-// Called once after login; also called when switching to attendance tab.
-async function loadAttendance(weekKey) {
-  if (!window.AUTH?.isLoggedIn()) return;
-  const orgId = window.SYNC?.ORG_ID;
-  if (!orgId) return;
-  const wk = weekKey || getISOWeekString();
-  try {
-    const res = await fetch(`/api/db/attendance/${orgId}/${wk}`, { headers: window.AUTH.getAuthHeader() });
-    if (!res.ok) return;
-    const rows = await res.json();
-    if (!attendanceData[wk]) attendanceData[wk] = {};
-    for (const r of rows) {
-      if (!attendanceData[wk][r.day_index]) attendanceData[wk][r.day_index] = {};
-      attendanceData[wk][r.day_index][r.meal] = r.child_count;
-    }
-  } catch (e) { console.warn('[loadAttendance]', e.message); }
+function loadAttendance() {
+  attendanceData = load('attendance', {});
+}
+function saveAttendance() {
+  save('attendance', attendanceData);
 }
 
 function getCurrentAttWeek() {
@@ -1533,7 +1501,7 @@ function updateWeekTotal(weekStr) {
   if (el) el.textContent = total > 0 ? total + ' porcí' : '–';
 }
 
-async function copyPrevWeek() {
+function copyPrevWeek() {
   const weekStr = getCurrentAttWeek();
   // Find previous week
   const dates = getWeekDates(weekStr);
@@ -1542,14 +1510,12 @@ async function copyPrevWeek() {
   const prevWeek = getISOWeekString(prevMonday);
 
   if (!attendanceData[prevWeek]) {
-    await loadAttendance(prevWeek);
-  }
-  if (!attendanceData[prevWeek] || !Object.keys(attendanceData[prevWeek]).length) {
     toast('Předchozí týden nemá žádná data.', 'info'); return;
   }
   attendanceData[weekStr] = JSON.parse(JSON.stringify(attendanceData[prevWeek]));
+  saveAttendance();
   renderAttendanceGrid();
-  toast('Docházka zkopírována z minulého týdne. Uložte ji tlačítkem „Uložit docházku".', 'success');
+  toast('Docházka zkopírována z minulého týdne.', 'success');
 }
 
 // ── Ingredient calculator from attendance + norms ──────────
@@ -1756,14 +1722,13 @@ function checkCompliance() {
 // INIT ATTENDANCE & NORMS
 // ══════════════════════════════════════════════════════════
 function initAttendance() {
+  loadAttendance();
+
   // Set week picker to current week
   const picker = document.getElementById('attWeekPicker');
   if (picker) {
     picker.value = getISOWeekString();
-    picker.addEventListener('change', async () => {
-      await loadAttendance(picker.value);
-      renderAttendanceGrid();
-    });
+    picker.addEventListener('change', renderAttendanceGrid);
   }
 
   const ageSelect = document.getElementById('attAgeGroup');
