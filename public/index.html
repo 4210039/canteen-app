@@ -105,7 +105,8 @@
   <nav class="tabs">
     <button class="tab active" data-tab="menu">📋 Jídelníček</button>
     <button class="tab" data-tab="attendance">👦 Docházka</button>
-    <button class="tab" data-tab="offers">🏷️ Akce & Nákup</button>
+    <button class="tab" data-tab="offers">🏷️ Akce</button>
+    <button class="tab" data-tab="nakup">🛒 Nákup</button>
     <button class="tab" data-tab="warehouse">📦 Sklad</button>
     <button class="tab" data-tab="finance">📊 Finance</button>
     <button class="tab" data-tab="norms">⚖️ Normy</button>
@@ -181,31 +182,53 @@
   </section>
 
   <!-- ══════════════════════════════════════════════════════════
-       TAB: Akce & Nákup
+       TAB: Akce
   ═══════════════════════════════════════════════════════════ -->
   <section class="tab-panel" id="tab-offers">
     <div class="panel-header">
       <div>
-        <h2>Nákupní seznam</h2>
+        <h2>Hledání akcí</h2>
         <p class="muted">Vychází z výpočtu surovin (Docházka → Přepočítat) · Lidl · Kaufland · Albert · Globus · Kupi.cz · vlastní dodavatel</p>
       </div>
       <div class="panel-actions">
-        <button class="btn btn-secondary" onclick="openImport('offers')">📥 Import</button>
-        <button class="btn btn-secondary" onclick="openExport('offers')">📤 Export</button>
-        <label class="buffer-label">
-          <span>Rezerva&nbsp;%</span>
-          <input type="number" id="stockBufferPct" class="buffer-input" value="0" min="0" max="200" step="1" title="Přidat % k výpočtu surovin jako zásobu" />
-          <span class="buffer-unit">%</span>
-        </label>
         <button class="btn btn-primary" id="btnGenOffers">🧮 Načíst z výpočtu surovin</button>
       </div>
     </div>
 
     <div id="offersContent">
       <div class="empty-state">
-        <span class="empty-icon">🛒</span>
+        <span class="empty-icon">🏷️</span>
         <p>Nejprve v záložce <strong>Docházka</strong> zadejte docházku a klikněte „Přepočítat".
-        Pak se zde tlačítkem „Načíst z výpočtu surovin" vytvoří nákupní seznam.</p>
+        Pak se zde tlačítkem „Načíst z výpočtu surovin" zobrazí karty pro hledání akcí v obchodech.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Nákup
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-nakup">
+    <div class="panel-header">
+      <div>
+        <h2>Nákupní seznam</h2>
+        <p class="muted">Množství z výpočtu surovin + individuální rezerva na zásobu pro každou kategorii</p>
+      </div>
+      <div class="panel-actions">
+        <button class="btn btn-secondary" onclick="openImport('offers')">📥 Import</button>
+        <button class="btn btn-secondary" onclick="openExport('offers')">📤 Export</button>
+        <button class="btn btn-primary" id="btnGenNakup">🧮 Načíst z výpočtu surovin</button>
+      </div>
+    </div>
+
+    <!-- Per-category reserve inputs — rendered by JS into this container -->
+    <div id="nakupRezervaPanel" class="hidden">
+      <div class="section-title">
+        <h3>Rezerva na zásobu — podle kategorie</h3>
+        <p class="muted" style="font-size:.82rem;margin-top:.2rem">Zadejte % navíc pro každou kategorii (0 = bez rezervy)</p>
+      </div>
+      <div id="nakupRezervaGrid" class="rezerva-grid"></div>
+      <div style="margin-top:.75rem">
+        <button class="btn btn-primary btn-sm" id="btnApplyRezerva">✅ Použít rezervy a vytvořit seznam</button>
       </div>
     </div>
 
@@ -262,7 +285,8 @@
     </div>
   </section>
 
-  <!-- ══════════════════════════════════════════════════════════
+
+    <!-- ══════════════════════════════════════════════════════════
        TAB: Sklad
   ═══════════════════════════════════════════════════════════ -->
   <section class="tab-panel" id="tab-warehouse">
@@ -275,6 +299,7 @@
         <button class="btn btn-secondary" onclick="openImport('warehouse')">📥 Import</button>
         <button class="btn btn-secondary" onclick="openExport('warehouse')">📤 Export</button>
         <button class="btn btn-secondary" id="btnConsumeWeek">📤 Odepsat spotřebu týdne</button>
+        <button class="btn btn-primary" id="btnWarehouseFromNorms">🧮 Načíst z výpočtu surovin</button>
         <button class="btn btn-secondary" id="btnAddItem">+ Ruční příjem</button>
       </div>
     </div>

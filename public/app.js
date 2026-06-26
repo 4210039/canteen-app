@@ -303,10 +303,7 @@ function storeSearchUrl(storeId, query) {
 }
 
 /**
- * Build the shopping list directly from the last norm calculation
- * (window.LAST_CALC, set by calcIngredients() in the Attendance tab).
- * Each food group becomes one cart line with the required grams,
- * pre-filled with a sensible practical unit (kg).
+ * Akce tab: load store-search cards from last norm calculation (no buffer).
  */
 function loadShoppingFromNorms() {
   const calc = window.LAST_CALC;
@@ -314,62 +311,111 @@ function loadShoppingFromNorms() {
     toast('Nejprve v záložce Docházka zadejte docházku a klikněte „Přepočítat".', 'info');
     return;
   }
+  renderOffers(calc);
+  toast('Akce načteny z výpočtu surovin!', 'success');
+}
 
-  const bufferPct = Math.max(0, parseFloat(document.getElementById('stockBufferPct')?.value) || 0);
-  const bufferFactor = 1 + bufferPct / 100;
+/**
+ * Nákup tab: show per-category reserve inputs then let user confirm.
+ */
+function loadNakupFromNorms() {
+  const calc = window.LAST_CALC;
+  if (!calc || !calc.results?.length) {
+    toast('Nejprve v záložce Docházka zadejte docházku a klikněte „Přepočítat".', 'info');
+    return;
+  }
+
+  const panel  = document.getElementById('nakupRezervaPanel');
+  const grid   = document.getElementById('nakupRezervaGrid');
+  const rows   = calc.results.filter(r => r.totalGrams > 0);
+
+  grid.innerHTML = rows.map(r => {
+    const normDisplay = r.totalGrams >= 1000
+      ? `${+(r.totalGrams / 1000).toFixed(2)} kg`
+      : `${r.totalGrams} g`;
+    return `<div class="rezerva-row">
+      <div class="rezerva-label">
+        <span class="rezerva-name">${escHtml(r.label)}</span>
+        <span class="muted rezerva-norm">(výpočet: ${normDisplay})</span>
+      </div>
+      <label class="rezerva-input-wrap">
+        <input type="number" class="rezerva-pct-input" data-key="${escHtml(r.key)}"
+          value="0" min="0" max="200" step="1" />
+        <span class="rezerva-pct-unit">%</span>
+      </label>
+    </div>`;
+  }).join('');
+
+  panel.classList.remove('hidden');
+  document.getElementById('shoppingPanel').classList.add('hidden');
+  toast('Zadejte rezervy pro každou kategorii a klikněte „Použít".', 'info');
+}
+
+/**
+ * Nákup tab: read per-category % inputs, build cart, render shopping list.
+ */
+function applyRezervaAndBuild() {
+  const calc = window.LAST_CALC;
+  if (!calc || !calc.results?.length) return;
+
+  // Collect per-category buffer values from the input grid
+  const buffers = {};
+  document.querySelectorAll('.rezerva-pct-input').forEach(input => {
+    buffers[input.dataset.key] = Math.max(0, parseFloat(input.value) || 0);
+  });
 
   STATE.cart = calc.results
     .filter(r => r.totalGrams > 0)
     .map(r => {
-      const bufferedGrams = r.totalGrams * bufferFactor;
+      const pct    = buffers[r.key] ?? 0;
+      const grams  = r.totalGrams * (1 + pct / 100);
       return {
         id: 'fg_' + r.key,
         foodGroup: r.key,
         name: r.label,
-        qty: bufferedGrams >= 1000 ? +(bufferedGrams / 1000).toFixed(2) : +bufferedGrams.toFixed(0),
-        unit: bufferedGrams >= 1000 ? 'kg' : 'g',
+        qty: grams >= 1000 ? +(grams / 1000).toFixed(2) : +grams.toFixed(0),
+        unit: grams >= 1000 ? 'kg' : 'g',
         neededGrams: r.totalGrams,
-        bufferPct: bufferPct,
+        bufferPct: pct,
         price: 0,
         store: '',
         promo: false,
         source: 'norms',
       };
     });
+
   saveCart();
-  renderOffers(calc);
+  document.getElementById('nakupRezervaPanel').classList.add('hidden');
   renderShoppingList();
-  toast('Nákupní seznam vytvořen z výpočtu surovin!', 'success');
+  toast('Nákupní seznam vytvořen!', 'success');
   setStatus('ok', 'Nákupní seznam připraven');
 }
 
 function renderOffers(calc) {
   const container = document.getElementById('offersContent');
-  if (!STATE.cart?.length) {
-    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🛒</span><p>Nejprve v záložce <strong>Docházka</strong> zadejte docházku a klikněte „Přepočítat". Pak se zde tlačítkem „Načíst z výpočtu surovin" vytvoří nákupní seznam.</p></div>`;
+  const rows = calc?.results?.filter(r => r.totalGrams > 0) || [];
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🏷️</span><p>Nejprve v záložce <strong>Docházka</strong> zadejte docházku a klikněte „Přepočítat". Pak se zde tlačítkem „Načíst z výpočtu surovin" zobrazí karty pro hledání akcí.</p></div>`;
     return;
   }
 
   const grid = document.createElement('div');
   grid.className = 'offers-grid';
 
-  for (const item of STATE.cart) {
-    if (item.source === 'custom') continue; // custom items don't need store search cards
+  for (const r of rows) {
+    const normDisplay = r.totalGrams >= 1000
+      ? `${+(r.totalGrams / 1000).toFixed(2)} kg`
+      : `${r.totalGrams} g`;
     const card = document.createElement('div');
     card.className = 'offer-card';
     const links = STORES.map(s => {
       const badgeLabel = s.type === 'search' ? '🏷️ Najít akci' : '📰 Prohlédnout leták';
-      return `<a class="store-link" href="${escHtml(storeSearchUrl(s.id, item.name))}" target="_blank" rel="noopener">
+      return `<a class="store-link" href="${escHtml(storeSearchUrl(s.id, r.label))}" target="_blank" rel="noopener">
         <span>${escHtml(s.name)}</span>
         <span class="store-badge ${s.type === 'search' ? 'promo' : ''}">${badgeLabel}</span>
       </a>`;
     }).join('');
-    const normGrams = item.neededGrams || 0;
-    const normDisplay = normGrams >= 1000 ? `${+(normGrams/1000).toFixed(2)} kg` : `${normGrams} g`;
-    const bufferBadge = (item.bufferPct > 0)
-      ? `<span class="buffer-badge">+${item.bufferPct}% zásoby → ${item.qty} ${item.unit} <span class="muted">(výpočet: ${normDisplay})</span></span>`
-      : '';
-    card.innerHTML = `<div class="ingredient-name">🥕 ${escHtml(item.name)} <span class="muted">(k nákupu: ${item.qty} ${item.unit})</span>${bufferBadge}</div>
+    card.innerHTML = `<div class="ingredient-name">🥕 ${escHtml(r.label)} <span class="muted">(potřeba: ${normDisplay})</span></div>
       <div class="store-links">${links}</div>`;
     grid.appendChild(card);
   }
@@ -622,6 +668,67 @@ function consumeWeek() {
   toast(`Spotřeba týdne ${weekKeyLabel(weekKey)} odepsána ze skladu (${count} skupin potravin).`, 'success');
 }
 
+/**
+ * Sklad tab: load norm calculation results directly as incoming stock receipts.
+ * Mirrors confirmPurchase() but sources directly from LAST_CALC (no cart needed).
+ */
+function warehouseFromNorms() {
+  const calc = window.LAST_CALC;
+  if (!calc || !calc.results?.length) {
+    toast('Nejprve v záložce Docházka zadejte docházku a klikněte „Přepočítat".', 'info');
+    return;
+  }
+
+  const rows = calc.results.filter(r => r.totalGrams > 0);
+  if (!rows.length) { toast('Výpočet neobsahuje žádné suroviny.', 'info'); return; }
+
+  if (!confirm(`Přidat ${rows.length} skupin surovin z výpočtu jako příjem na sklad?`)) return;
+
+  const weekKey = calc.weekKey || getWeekKey();
+  const now = new Date().toISOString();
+
+  const dbEntries = [];
+  for (const r of rows) {
+    const qty  = r.totalGrams >= 1000 ? +(r.totalGrams / 1000).toFixed(2) : r.totalGrams;
+    const unit = r.totalGrams >= 1000 ? 'kg' : 'g';
+    const entry = {
+      id: Date.now() + Math.random(),
+      type: 'in',
+      name: r.label,
+      foodGroup: r.key,
+      qty, unit,
+      grams: r.totalGrams,
+      price: 0,
+      store: 'Z výpočtu surovin',
+      promo: false,
+      date: now,
+      weekKey,
+      source: 'norms',
+    };
+    STATE.ledger.push(entry);
+    dbEntries.push({
+      org_id: window.SYNC?.ORG_ID,
+      name: r.label,
+      food_group: r.key,
+      qty, unit,
+      grams: r.totalGrams,
+      price: 0,
+      store: 'Z výpočtu surovin',
+      promo: false,
+      week_key: weekKey,
+      source: 'norms',
+    });
+  }
+
+  saveLedger();
+  if (dbEntries.length) dbPost('/api/db/ledger/bulk-in', { entries: dbEntries });
+
+  renderWarehouse();
+  renderStockBalance();
+  renderFinance();
+  toast(`${rows.length} skupin surovin přijato na sklad z výpočtu!`, 'success');
+}
+
 // ══════════════════════════════════════════════════════════
 // WAREHOUSE TAB — Stock balance + full ledger
 // ══════════════════════════════════════════════════════════
@@ -768,6 +875,7 @@ function initWarehouseForm() {
   });
 
   document.getElementById('btnConsumeWeek')?.addEventListener('click', consumeWeek);
+  document.getElementById('btnWarehouseFromNorms')?.addEventListener('click', warehouseFromNorms);
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1452,6 +1560,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnFetchMenu').addEventListener('click', fetchMenu);
   document.getElementById('btnGoToOffers').addEventListener('click', () => switchTab('offers'));
   document.getElementById('btnGenOffers').addEventListener('click', loadShoppingFromNorms);
+  document.getElementById('btnGenNakup').addEventListener('click', loadNakupFromNorms);
+  document.getElementById('btnApplyRezerva').addEventListener('click', applyRezervaAndBuild);
   document.getElementById('btnConfirmPurchase').addEventListener('click', confirmPurchase);
 
   // Child count change → re-render finance
@@ -1660,8 +1770,8 @@ function calcIngredients() {
     </div>
     <div class="intro" style="margin-top:1rem">
       <span class="intro-icon">🛒</span>
-      <p>Výpočet je hotový. Přejděte na záložku <strong>Akce & Nákup</strong> a klikněte
-      „🧮 Načíst z výpočtu surovin" — vytvoří se nákupní seznam přesně podle těchto čísel.</p>
+      <p>Výpočet je hotový. Přejděte na záložku <strong>Nákup</strong> a klikněte
+      „🧮 Načíst z výpočtu surovin" — zadejte rezervy pro každou kategorii a vytvořte nákupní seznam.</p>
     </div>
     <p class="muted" style="margin-top:.5rem">
       Celkem porcí tento týden: <strong>${totalPortions}</strong> ·
