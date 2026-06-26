@@ -1776,7 +1776,7 @@ function calcIngredients() {
     <p class="muted" style="margin-top:.5rem">
       Celkem porcí tento týden: <strong>${totalPortions}</strong> ·
       Věková skupina: <strong>${escHtml(N.ageGroups[ageGroup]?.label || ageGroup)}</strong> ·
-      Hodnoty dle Vyhlášky č. 107/2005 Sb., Tabulka 1
+      Hodnoty dle Vyhlášky č. 107/2005 Sb., ve znění Vyhlášky č. 310/2025 Sb. (účinnost 1. 9. 2026)
     </p>`;
 }
 
@@ -1787,12 +1787,12 @@ function calcIngredients() {
 function renderNormReference() {
   const N = window.NORMS;
   const ageKey = 'ms_3_6';
-  const age = N.ageGroups[ageKey];
   const container = document.getElementById('normRefGrid');
   if (!container) return;
 
+  // Show daily target for přesnídávka+oběd+svačina (MŠ standard 3-meal day)
   container.innerHTML = Object.entries(N.foodGroups).map(([key, g]) => {
-    const dayVal = Math.round(g.adultDay * age.pct);
+    const dayVal = N.mealValues[ageKey]?.presnidavka_obed_svacina?.[key] ?? 0;
     return `
       <div class="norm-ref-item">
         <span class="norm-dot" style="background:${g.color}"></span>
@@ -1804,15 +1804,17 @@ function renderNormReference() {
 
 function renderFreqRules() {
   const rules = [
-    { icon: '🐟', label: 'Ryby min. 2× měsíčně', badge: '2×/měsíc' },
+    { icon: '🐟', label: 'Ryby, korýši, měkkýši min. 2× měsíčně', badge: '2×/měsíc' },
     { icon: '🫘', label: 'Luštěniny min. 4× měsíčně (1× týdně)', badge: '4×/měsíc' },
     { icon: '🥦', label: 'Zelenina nebo ovoce součástí každého jídla', badge: 'Každé jídlo' },
-    { icon: '🚫', label: 'Zakázáno: sladké nápoje (džus, limonáda, sirup)', badge: 'Zakázáno' },
-    { icon: '🚫', label: 'Zakázáno: palmový, kokosový tuk jako volný tuk', badge: 'Zakázáno' },
-    { icon: '🚫', label: 'Zakázáno: polévkové koření (bujón, Maggi) s >10% soli', badge: 'Zakázáno' },
-    { icon: '🚫', label: 'Zakázáno: sladidla v nápojích nebo potravinách', badge: 'Zakázáno' },
-    { icon: '⚠️', label: 'Sůl: sledujte obsah ve výrobcích, max. 10 g/100 g', badge: 'Max 10g/100g' },
-    { icon: '📊', label: 'Plnění SK: tolerance 75 %–125 % (50–150 % pro maso při výběru)', badge: '75–125 %' },
+    { icon: '🌾', label: 'Celozrnné obiloviny/pseudoobiloviny – sledujte plnění (min. 75 %)', badge: 'Min 75 %' },
+    { icon: '🚫', label: 'Zakázáno: sladké nápoje (džus, limonáda, sirup, slazený čaj)', badge: 'Zakázáno' },
+    { icon: '🚫', label: 'Zakázáno: palmový, palmojádrový a kokosový volný tuk', badge: 'Zakázáno' },
+    { icon: '🚫', label: 'Zakázáno: dehydratované směsi a bujóny s >1 g soli/100 g', badge: 'Zakázáno' },
+    { icon: '🚫', label: 'Jemné pečivo: max. 1× měsíčně k obědu, max. 2× k přesnídávce/svačině', badge: 'Max 2×/měs.' },
+    { icon: '⚗️',  label: 'Poměr rostlinných a živočišných tuků min. 2:1 ve prospěch rostlinných', badge: '2:1 rostl.' },
+    { icon: '📊', label: 'Tolerance: Maso 75–125 %, Tuky/Cukry max. 100 %, Ryby/Zelenina min. 75 % (bez max.)', badge: 'Viz tabulka' },
+    { icon: '🌱', label: 'BIO potraviny: min. 2 % hmotnosti (jídelny s >180 strávníky od 1. 9. 2028)', badge: 'Od 9/2028' },
   ];
 
   const container = document.getElementById('freqRules');
@@ -1846,15 +1848,17 @@ function checkCompliance() {
   // Fallback keyword mapping — only used for items without an explicit foodGroup
   // (e.g. old manually-added items, or items predating this feature)
   const groupMapping = {
-    maso:      ['maso', 'kuřec', 'vepřov', 'hovězí', 'sekaná', 'krůt', 'řízek', 'karbanátek'],
-    ryby:      ['ryb', 'losos', 'treska', 'tuňák', 'pstruh', 'kapr'],
-    mleko:     ['mléko', 'sýr', 'jogurt', 'tvaroh', 'máslo', 'smetana', 'kefír'],
-    tuk:       ['olej', 'tuk', 'margarín'],
-    cukr:      ['cukr', 'med', 'džem'],
-    zelenina:  ['mrkev', 'brambor', 'rajče', 'paprika', 'okurka', 'špenát', 'hrách', 'kukuřice', 'kapusta', 'celer', 'zelenina'],
-    ovoce:     ['jablk', 'banán', 'pomeranč', 'hruška', 'mandarink', 'jahod', 'meloun', 'hrozn', 'ovoce'],
-    brambory:  ['brambor'],
-    lustaniny: ['čočka', 'fazole', 'hrách', 'cizrna', 'tofu', 'luštěnin'],
+    maso:          ['maso', 'kuřec', 'vepřov', 'hovězí', 'sekaná', 'krůt', 'řízek', 'karbanátek', 'drůbež', 'jehně'],
+    ryby:          ['ryb', 'losos', 'treska', 'tuňák', 'pstruh', 'kapr', 'korýš', 'kreveta', 'chobotnic'],
+    mlecneVyrobky: ['mléko', 'sýr', 'jogurt', 'tvaroh', 'máslo', 'smetana', 'kefír', 'mléčn'],
+    tuk:           ['olej', 'tuk volný', 'margarín', 'ghí'],
+    cukr:          ['cukr', 'med', 'džem', 'sirup'],
+    zeleninaOvoce: ['mrkev', 'rajče', 'paprika', 'okurka', 'špenát', 'kukuřice', 'kapusta', 'celer', 'zelenina',
+                    'jablk', 'banán', 'pomeranč', 'hruška', 'mandarink', 'jahod', 'meloun', 'hrozn', 'ovoce',
+                    'salát', 'kedlubn', 'ředkv', 'řepa', 'pórek', 'cibule', 'česnek'],
+    brambory:      ['brambor', 'batát', 'topinambur'],
+    celozrnne:     ['celozrnn', 'pohanka', 'quinoa', 'amarant', 'ovesn', 'žitn', 'celozr', 'krupice celozrnná'],
+    lustaniny:     ['čočka', 'fazole', 'hrách', 'cizrna', 'tofu', 'luštěnin', 'sója'],
   };
 
   let taggedCount = 0, guessedCount = 0;
@@ -1878,12 +1882,19 @@ function checkCompliance() {
   }
 
   // Render compliance bars
+  // Track represents 0–150 % of the norm target.
+  // bar fill width and marker positions are all scaled to that range.
+  const SCALE = 150; // track = 150 % of norm
   const rows = Object.entries(N.foodGroups).map(([key, group]) => {
     const actual = actualGrams[key] || 0;
     const result = N.checkCompliance(actual, key, ageKey);
-    const barWidth = Math.min(150, result.pct);
-    const minMark = 75;
-    const maxMark = 125;
+    const barWidth = Math.min(100, (result.pct / SCALE) * 100); // capped at 100% of track
+    const minMark = (group.min * 100 / SCALE) * 100;
+    const maxMark = group.max !== null ? (group.max * 100 / SCALE) * 100 : null;
+
+    const maxMarker = maxMark !== null
+      ? `<div class="comp-bar-max" style="left:${maxMark}%" title="Max ${Math.round(group.max*100)}%"></div>`
+      : '';
 
     return `
       <div class="comp-row">
@@ -1894,11 +1905,12 @@ function checkCompliance() {
         </div>
         <div class="comp-bar-track">
           <div class="comp-bar-fill ${result.status}" style="width:${barWidth}%"></div>
-          <div class="comp-bar-min" style="left:${minMark}%" title="Min 75%"></div>
-          <div class="comp-bar-max" style="left:${maxMark}%" title="Max 125%"></div>
+          <div class="comp-bar-min" style="left:${minMark}%" title="Min ${Math.round(group.min*100)}%"></div>
+          ${maxMarker}
         </div>
         <div class="comp-detail">
           Cíl: ${result.target.toFixed(1)} g/den · Skutečnost: ${result.actual.toFixed(1)} g/den ·
+          Min: ${(result.target * group.min).toFixed(1)} g/den · Max: ${group.max !== null ? (result.target * group.max).toFixed(1) + ' g/den' : '—'} ·
           ${result.status === 'ok' ? '✅ V normě' : result.status === 'low' ? '❌ Pod normou' : '⚠️ Nad normou'}
         </div>
       </div>`;

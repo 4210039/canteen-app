@@ -381,16 +381,19 @@ input, select { font: inherit; }
 .comp-pct.high { color: var(--amber); }
 .comp-bar-track {
   height: 8px; background: var(--border); border-radius: 4px; position: relative;
+  overflow: hidden;
 }
 .comp-bar-fill {
   height: 100%; border-radius: 4px; transition: width .4s;
   background: var(--green-light);
+  max-width: 100%;
 }
 .comp-bar-fill.low { background: var(--red); }
 .comp-bar-fill.high { background: var(--amber); }
 .comp-bar-min, .comp-bar-max {
   position: absolute; top: -3px; width: 2px; height: 14px;
   background: var(--ink-mid); border-radius: 1px;
+  z-index: 1; overflow: visible;
 }
 .comp-detail { font-size: .75rem; color: var(--ink-light); margin-top: .3rem; }
 

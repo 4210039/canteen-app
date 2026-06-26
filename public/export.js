@@ -97,11 +97,11 @@ const EXPORT_CONFIG = {
   norms: {
     title:    '⚖️ Export – Normy',
     filename: 'normy',
-    describe: 'Exportuje referenční tabulku výživových norem (Vyhl. č. 107/2005 Sb.).',
-    headers:  ['Skupina potravin', 'Kód', 'Dospělý g/den (100%)', 'MŠ 3–6 let g/den (60%)', 'Min. tolerance', 'Max. tolerance'],
+    describe: 'Exportuje referenční tabulku výživových norem (Vyhl. č. 107/2005 Sb., ve znění Vyhl. č. 310/2025 Sb.).',
+    headers:  ['Skupina potravin', 'Kód', 'MŠ 3–6 let g/den (přesnídávka+oběd+svačina)', 'Min. tolerance', 'Max. tolerance'],
     build:    buildNormsRows,
-    pdfTitle: 'Výživové normy – Spotřební koš',
-    docTitle: 'Výživové normy – Vyhl. č. 107/2005 Sb.',
+    pdfTitle: 'Výživové normy – Spotřební koš (Vyhl. 310/2025)',
+    docTitle: 'Výživové normy – Vyhl. č. 107/2005 Sb. ve znění 310/2025 Sb.',
   },
 };
 
@@ -244,12 +244,14 @@ function buildFinanceRows() {
 function buildNormsRows() {
   const N = window.NORMS;
   if (!N?.foodGroups) return [];
-  const msAge = N.ageGroups?.ms_3_6 || { pct: 0.60 };
-  return Object.entries(N.foodGroups).map(([key, g]) => [
-    g.label, key, g.adultDay,
-    Math.round(g.adultDay * msAge.pct),
-    (g.min * 100) + ' %', (g.max * 100) + ' %',
-  ]);
+  return Object.entries(N.foodGroups).map(([key, g]) => {
+    const target = N.mealValues?.ms_3_6?.presnidavka_obed_svacina?.[key] ?? 0;
+    const maxLabel = g.max !== null ? (g.max * 100) + ' %' : 'bez max.';
+    return [
+      g.label, key, target,
+      (g.min * 100) + ' %', maxLabel,
+    ];
+  });
 }
 
 // ── CSV ───────────────────────────────────────────────────
