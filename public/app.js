@@ -1684,7 +1684,6 @@ function renderFreqRules() {
   const rules = [
     { icon: '🐟', label: 'Ryby min. 2× měsíčně', badge: '2×/měsíc' },
     { icon: '🫘', label: 'Luštěniny min. 4× měsíčně (1× týdně)', badge: '4×/měsíc' },
-    { icon: '🌾', label: 'Celozrnné obiloviny min. 3× týdně', badge: '3×/týden' },
     { icon: '🥦', label: 'Zelenina nebo ovoce součástí každého jídla', badge: 'Každé jídlo' },
     { icon: '🚫', label: 'Zakázáno: sladké nápoje (džus, limonáda, sirup)', badge: 'Zakázáno' },
     { icon: '🚫', label: 'Zakázáno: palmový, kokosový tuk jako volný tuk', badge: 'Zakázáno' },
@@ -1730,9 +1729,9 @@ function checkCompliance() {
     mleko:     ['mléko', 'sýr', 'jogurt', 'tvaroh', 'máslo', 'smetana', 'kefír'],
     tuk:       ['olej', 'tuk', 'margarín'],
     cukr:      ['cukr', 'med', 'džem'],
-    zelenina:  ['mrkev', 'brambor', 'rajče', 'paprika', 'okurka', 'špenát', 'hrách', 'kukuřice', 'kapusta', 'celer', 'jablk', 'banán', 'pomeranč', 'zelenina', 'ovoce'],
+    zelenina:  ['mrkev', 'brambor', 'rajče', 'paprika', 'okurka', 'špenát', 'hrách', 'kukuřice', 'kapusta', 'celer', 'zelenina'],
+    ovoce:     ['jablk', 'banán', 'pomeranč', 'hruška', 'mandarink', 'jahod', 'meloun', 'hrozn', 'ovoce'],
     brambory:  ['brambor'],
-    celozrnne: ['celozrnný', 'celozrnné', 'špaldov', 'pohank', 'ječné', 'kroupy', 'bulgur', 'quinoa'],
     lustaniny: ['čočka', 'fazole', 'hrách', 'cizrna', 'tofu', 'luštěnin'],
   };
 

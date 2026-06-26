@@ -5,15 +5,15 @@
  * Values in grams per child per day (čistá hmotnost = net weight)
  * MŠ = Mateřská škola (Kindergarten), age 3-6 years = 60% of adult portion
  *
- * 9 food groups tracked:
+ * 8 food groups tracked:
  * 1. Maso (Meat)
  * 2. Ryby (Fish)
  * 3. Mléko a mléčné výrobky (Milk & dairy)
  * 4. Tuk volný (Free fat/oil)
  * 5. Cukr volný (Free sugar)
- * 6. Zelenina a ovoce (Vegetables & fruit - tracked together)
- * 7. Brambory a ostatní hlízy (Potatoes)
- * 8. Celozrnné obiloviny (Wholegrain cereals)
+ * 6. Zelenina (Vegetables)
+ * 7. Ovoce (Fruit)
+ * 8. Brambory a ostatní hlízy (Potatoes)
  * 9. Luštěniny (Legumes)
  *
  * For MŠ (age 3-6): 3 meals/day = přesnídávka + oběd + svačina
@@ -36,15 +36,22 @@ window.NORMS = {
   // Tabulka 1 - Daily values (g/child/day) for ADULT (100%)
   // MŠ uses SUM of přesnídávka+oběd+svačina per regulation (Příloha 1, bod 2)
   // Per meal split for MŠ: přesnídávka 20%, oběd 65%, svačina 15%
+  //
+  // Zelenina/Ovoce note: the official table lists these as two separate
+  // columns (Zelenina, Ovoce), but this app previously tracked them as
+  // one combined "Zelenina a ovoce" group at 250 g/adult/day. Splitting
+  // it here keeps the same combined total (125 g + 125 g = 250 g) as a
+  // working default — adjust adultDay below per food group if your own
+  // jídelna's records call for a different vegetable/fruit split.
   foodGroups: {
     maso:       { label: 'Maso',                       unit: 'g', adultDay: 75,  min: 0.75, max: 1.25, color: '#E53935' },
     ryby:       { label: 'Ryby, korýši, měkkýši',      unit: 'g', adultDay: 10,  min: 0.75, max: 1.25, color: '#1E88E5' },
     mleko:      { label: 'Mléko a mléčné výrobky',     unit: 'g', adultDay: 250, min: 0.75, max: 1.25, color: '#FDD835' },
     tuk:        { label: 'Tuk volný',                  unit: 'g', adultDay: 20,  min: 0.75, max: 1.25, color: '#FB8C00' },
     cukr:       { label: 'Cukr volný',                 unit: 'g', adultDay: 20,  min: 0.75, max: 1.25, color: '#8E24AA' },
-    zelenina:   { label: 'Zelenina a ovoce',            unit: 'g', adultDay: 250, min: 0.75, max: 1.25, color: '#43A047' },
+    zelenina:   { label: 'Zelenina',                   unit: 'g', adultDay: 125, min: 0.75, max: 1.25, color: '#43A047' },
+    ovoce:      { label: 'Ovoce',                      unit: 'g', adultDay: 125, min: 0.75, max: 1.25, color: '#C0CA33' },
     brambory:   { label: 'Brambory a hlízy',            unit: 'g', adultDay: 150, min: 0.75, max: 1.25, color: '#6D4C41' },
-    celozrnne:  { label: 'Celozrnné obiloviny',         unit: 'g', adultDay: 20,  min: 0.75, max: 1.25, color: '#00897B' },
     lustaniny:  { label: 'Luštěniny',                   unit: 'g', adultDay: 15,  min: 0.75, max: 1.25, color: '#3949AB' },
   },
 
@@ -59,8 +66,8 @@ window.NORMS = {
   frequencyRules: [
     { group: 'ryby',      minPerMonth: 2,  label: 'Ryby min. 2× měsíčně' },
     { group: 'lustaniny', minPerMonth: 4,  label: 'Luštěniny min. 4× měsíčně (1× týdně)' },
-    { group: 'celozrnne', minPerWeek: 3,   label: 'Celozrnné obiloviny min. 3× týdně' },
     { group: 'zelenina',  everyMeal: true, label: 'Zelenina/ovoce součástí každého jídla' },
+    { group: 'ovoce',     everyMeal: true, label: 'Zelenina/ovoce součástí každého jídla' },
   ],
 
   /**
