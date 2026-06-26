@@ -1355,10 +1355,66 @@ function selectSavedMenuWeek(weekKey) {
   }
 
   detail.innerHTML = `<div class="saved-detail-header">
-    <h3>📋 ${escHtml(weekKeyRangeLabel(weekKey))}</h3>
-    <span class="muted">Uloženo: ${new Date(entry.fetched_at).toLocaleDateString('cs-CZ')}</span>
+    <div>
+      <h3>📋 ${escHtml(weekKeyRangeLabel(weekKey))}</h3>
+      <span class="muted">Uloženo: ${new Date(entry.fetched_at).toLocaleDateString('cs-CZ')}</span>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="useSavedMenuAsCurrent('${weekKey}')">✅ Použít jako aktuální jídelníček</button>
   </div>`;
   detail.appendChild(grid);
+}
+
+/**
+ * Loads an archived week from _savedMenus into STATE.currentMenu — the
+ * exact same place fetchMenu() (the "Automaticky stažen z ms-harmonie.cz"
+ * button) writes to. Everything downstream (renderMenu, renderIngredients,
+ * "Najít akce" → Offers, the lastCheck label) reads from that one place,
+ * so once this runs, continuing the workflow with an old week works
+ * identically to continuing with a freshly auto-fetched one — no special
+ * "archive mode" to keep track of.
+ */
+function useSavedMenuAsCurrent(weekKey) {
+  const entry = _savedMenus.find(m => m.week_key === weekKey);
+  if (!entry) return;
+
+  const days = Array.isArray(entry.days_json) ? entry.days_json : [];
+  if (!days.length) {
+    toast('Tento jídelníček nemá žádná data k použití.', 'error');
+    return;
+  }
+
+  if (STATE.currentMenu?.days?.length &&
+      !confirm(`Nahradit aktuálně zobrazený jídelníček týdnem ${weekKeyRangeLabel(weekKey)}? Stávající zobrazený jídelníček bude přepsán (uložené záznamy v databázi zůstanou zachovány).`)) {
+    return;
+  }
+
+  STATE.currentMenu = {
+    fetchedAt: entry.fetched_at,
+    raw: entry.raw_text || '',
+    days,
+  };
+  // ingredients were stored alongside the menu at fetch time; fall back to
+  // re-extracting from the dish list if an older row predates that column.
+  STATE.ingredients = Array.isArray(entry.ingredients) && entry.ingredients.length
+    ? entry.ingredients
+    : extractIngredients(days);
+  saveMenu();
+
+  renderMenu();
+  renderIngredients();
+  setStatus('ok', 'Jídelníček načten z archivu');
+
+  const lastCheck = document.getElementById('lastCheck');
+  if (lastCheck) {
+    lastCheck.textContent = 'Poslední kontrola: ' + new Date(entry.fetched_at).toLocaleString('cs-CZ') + ' (z archivu)';
+  }
+
+  toast(`Jídelníček ${weekKeyRangeLabel(weekKey)} je nyní aktivní jídelníček.`, 'success');
+
+  // Scroll back up to the live menu view so the result of the action is
+  // immediately visible, instead of leaving the person looking at the
+  // archive panel wondering whether anything happened.
+  document.getElementById('menuContent')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function initSavedMenusBrowser() {
