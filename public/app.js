@@ -1018,6 +1018,21 @@ function showLogin() {
   document.getElementById('loginOverlay').classList.remove('hidden');
 }
 
+// Single source of truth for signing out, reachable from the header
+// (every role, every tab) and from the old Settings-tab button — both
+// just call this. A confirm() guard matters more now than it did when
+// this was buried at the bottom of Settings: it's a one-click icon
+// sitting in the header at all times, so a stray click shouldn't
+// silently end the session.
+async function doLogout() {
+  if (!confirm('Opravdu se chcete odhlásit?')) return;
+  await window.AUTH.signOut();
+  document.getElementById('userBadge').classList.add('hidden');
+  document.getElementById('syncCard').classList.add('hidden');
+  document.getElementById('membersCard').classList.add('hidden');
+  showLogin();
+}
+
 function showApp() {
   document.getElementById('loginOverlay').classList.add('hidden');
   applyRoleGating();
@@ -1046,7 +1061,8 @@ function renderAccountInfo() {
 
   const badge = document.getElementById('userBadge');
   badge.classList.remove('hidden');
-  badge.innerHTML = `${escHtml(profile.full_name || 'Uživatel')} <span class="role-pill">${escHtml(window.AUTH.roleLabel())}</span>`;
+  document.getElementById('userBadgeText').innerHTML =
+    `${escHtml(profile.full_name || 'Uživatel')} <span class="role-pill">${escHtml(window.AUTH.roleLabel())}</span>`;
 
   const accountInfo = document.getElementById('accountInfo');
   accountInfo.innerHTML = `
@@ -1141,13 +1157,8 @@ function wireLoginForms() {
     }
   });
 
-  document.getElementById('btnLogout')?.addEventListener('click', async () => {
-    await window.AUTH.signOut();
-    document.getElementById('userBadge').classList.add('hidden');
-    document.getElementById('syncCard').classList.add('hidden');
-    document.getElementById('membersCard').classList.add('hidden');
-    showLogin();
-  });
+  document.getElementById('btnLogout')?.addEventListener('click', doLogout);
+  document.getElementById('btnLogoutHeader')?.addEventListener('click', doLogout);
 
   document.getElementById('btnSyncPush')?.addEventListener('click', async () => {
     const statusEl = document.getElementById('syncStatus');
