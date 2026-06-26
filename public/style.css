@@ -743,3 +743,22 @@ input, select { font: inherit; }
 .saved-detail-header h3 { font-size: .9rem; }
 .saved-detail-header .muted { font-size: .78rem; }
 
+
+/* Stock buffer percentage input */
+.buffer-label {
+  display: flex; align-items: center; gap: .35rem;
+  font-size: .82rem; color: var(--ink-light);
+}
+.buffer-input {
+  width: 52px; padding: .3rem .4rem;
+  border: 1.5px solid var(--border); border-radius: 6px;
+  font-size: .85rem; text-align: center;
+  background: var(--surface); color: var(--ink);
+}
+.buffer-input:focus { outline: none; border-color: var(--green); }
+.buffer-unit { font-size: .8rem; }
+.buffer-badge {
+  display: block; margin-top: .25rem;
+  font-size: .78rem; color: var(--green);
+  font-weight: 500;
+}

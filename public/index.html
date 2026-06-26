@@ -192,6 +192,11 @@
       <div class="panel-actions">
         <button class="btn btn-secondary" onclick="openImport('offers')">📥 Import</button>
         <button class="btn btn-secondary" onclick="openExport('offers')">📤 Export</button>
+        <label class="buffer-label">
+          <span>Rezerva&nbsp;%</span>
+          <input type="number" id="stockBufferPct" class="buffer-input" value="0" min="0" max="200" step="1" title="Přidat % k výpočtu surovin jako zásobu" />
+          <span class="buffer-unit">%</span>
+        </label>
         <button class="btn btn-primary" id="btnGenOffers">🧮 Načíst z výpočtu surovin</button>
       </div>
     </div>

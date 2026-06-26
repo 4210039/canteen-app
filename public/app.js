@@ -315,20 +315,27 @@ function loadShoppingFromNorms() {
     return;
   }
 
+  const bufferPct = Math.max(0, parseFloat(document.getElementById('stockBufferPct')?.value) || 0);
+  const bufferFactor = 1 + bufferPct / 100;
+
   STATE.cart = calc.results
     .filter(r => r.totalGrams > 0)
-    .map(r => ({
-      id: 'fg_' + r.key,
-      foodGroup: r.key,
-      name: r.label,
-      qty: r.totalGrams >= 1000 ? +(r.totalGrams / 1000).toFixed(2) : r.totalGrams,
-      unit: r.totalGrams >= 1000 ? 'kg' : 'g',
-      neededGrams: r.totalGrams,
-      price: 0,
-      store: '',
-      promo: false,
-      source: 'norms',
-    }));
+    .map(r => {
+      const bufferedGrams = r.totalGrams * bufferFactor;
+      return {
+        id: 'fg_' + r.key,
+        foodGroup: r.key,
+        name: r.label,
+        qty: bufferedGrams >= 1000 ? +(bufferedGrams / 1000).toFixed(2) : +bufferedGrams.toFixed(0),
+        unit: bufferedGrams >= 1000 ? 'kg' : 'g',
+        neededGrams: r.totalGrams,
+        bufferPct: bufferPct,
+        price: 0,
+        store: '',
+        promo: false,
+        source: 'norms',
+      };
+    });
   saveCart();
   renderOffers(calc);
   renderShoppingList();
@@ -357,7 +364,12 @@ function renderOffers(calc) {
         <span class="store-badge ${s.type === 'search' ? 'promo' : ''}">${badgeLabel}</span>
       </a>`;
     }).join('');
-    card.innerHTML = `<div class="ingredient-name">🥕 ${escHtml(item.name)} <span class="muted">(potřeba ${item.qty} ${item.unit})</span></div>
+    const normGrams = item.neededGrams || 0;
+    const normDisplay = normGrams >= 1000 ? `${+(normGrams/1000).toFixed(2)} kg` : `${normGrams} g`;
+    const bufferBadge = (item.bufferPct > 0)
+      ? `<span class="buffer-badge">+${item.bufferPct}% zásoby → ${item.qty} ${item.unit} <span class="muted">(výpočet: ${normDisplay})</span></span>`
+      : '';
+    card.innerHTML = `<div class="ingredient-name">🥕 ${escHtml(item.name)} <span class="muted">(k nákupu: ${item.qty} ${item.unit})</span>${bufferBadge}</div>
       <div class="store-links">${links}</div>`;
     grid.appendChild(card);
   }
@@ -374,7 +386,7 @@ function renderShoppingList() {
   list.innerHTML = '<div class="shopping-list">' + STATE.cart.map((item, i) =>
     `<div class="shopping-item ${item.source === 'custom' ? 'custom-source' : ''}">
       <input type="checkbox" id="si-${i}" checked onchange="toggleCartItem(${i}, this.checked)" />
-      <label class="si-name" for="si-${i}">${escHtml(item.name)} <span class="muted">(${item.qty} ${item.unit})</span>
+      <label class="si-name" for="si-${i}">${escHtml(item.name)} <span class="muted">(${item.qty} ${item.unit}${item.bufferPct > 0 ? ` · +${item.bufferPct}% zásoby` : ''})</span>
         ${item.source === 'custom' ? `<span class="source-badge">vlastní dodavatel</span>` : ''}
       </label>
       <div>
