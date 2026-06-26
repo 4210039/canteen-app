@@ -1,6 +1,9 @@
 /* ═══════════════════════════════════════════════════════════
    export.js – Universal Export Feature
    Formats: CSV, XLSX, JSON, XML, PDF, Word (.docx)
+   Plus: full-app JSON backup (doExportBackup) — restorable via the
+   'backup' import section in import.js. Keep BACKUP_SCHEMA_VERSION
+   and validateBackupPayload() in import.js in sync if this shape changes.
 
    Libraries:
    - XLSX  (SheetJS)  — already loaded for import
@@ -14,6 +17,35 @@
    - Modal reuses all .import-* CSS classes; no new styles needed
    - escHtml() is global from import.js; not redefined here
 ═══════════════════════════════════════════════════════════ */
+
+const BACKUP_SCHEMA_VERSION = 1;
+
+// ── Full-app backup (separate from per-section export) ─────
+// Captures everything needed to fully restore the app's state, not just
+// one table. Lives outside EXPORT_CONFIG/the export modal because it's a
+// different action (whole-app safety net) from "export this table as
+// a spreadsheet" — triggered from Settings, not from a section's
+// Export button.
+function doExportBackup() {
+  const payload = {
+    app: 'canteen-smart-manager',
+    schemaVersion: BACKUP_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    data: {
+      currentMenu: STATE.currentMenu || null,
+      ingredients: STATE.ingredients || [],
+      ledger: STATE.ledger || [],
+      cart: STATE.cart || [],
+      attendance: (typeof attendanceData !== 'undefined') ? attendanceData : {},
+    },
+  };
+
+  triggerDownload(
+    new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' }),
+    `canteen-zaloha-${isoDate()}.json`
+  );
+  toast('Úplná záloha stažena.', 'success');
+}
 
 // ── Section config ────────────────────────────────────────
 const EXPORT_CONFIG = {
@@ -505,4 +537,8 @@ function initExport() {
   for (const [id, fn] of Object.entries(bindings)) {
     document.getElementById(id)?.addEventListener('click', fn);
   }
+
+  // Settings tab — full-app backup/restore (separate from per-section export)
+  document.getElementById('btnBackupDownload')?.addEventListener('click', doExportBackup);
+  document.getElementById('btnBackupRestore')?.addEventListener('click', () => openImport('backup'));
 }

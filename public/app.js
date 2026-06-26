@@ -49,6 +49,10 @@ function loadAll() {
   STATE.ingredients  = load('ingredients', []);
   STATE.ledger       = load('ledger',    migrateOldData());
   STATE.cart         = load('cart',      []);
+  // NOTE: attendanceData lives outside STATE (legacy reasons) but must be
+  // reloaded here too, or "Smazat všechna data" clears localStorage while
+  // leaving the in-memory grid showing stale data until a manual refresh.
+  if (typeof loadAttendance === 'function') loadAttendance();
 }
 function saveMenu()    { save('menu', STATE.currentMenu); save('ingredients', STATE.ingredients); }
 function saveLedger()  { save('ledger', STATE.ledger); }
@@ -832,6 +836,7 @@ function initSettings() {
     ['menu','ingredients','ledger','cart','warehouse','purchases','attendance'].forEach(k => localStorage.removeItem('canteen_' + k));
     loadAll();
     renderAll();
+    if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
     toast('Všechna data byla smazána.', 'info');
   });
 }
@@ -1069,6 +1074,7 @@ async function loadMembersList() {
       ${m.id === myId ? '<span class="mr-you">(vy)</span>' : ''}
       <select onchange="updateMemberRole('${m.id}', this.value)" ${m.id === myId ? 'disabled' : ''}>
         <option value="kucharka" ${m.role === 'kucharka' ? 'selected' : ''}>Kuchařka</option>
+        <option value="tester" ${m.role === 'tester' ? 'selected' : ''}>Tester</option>
         <option value="vedouci" ${m.role === 'vedouci' ? 'selected' : ''}>Vedoucí jídelny</option>
         <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>Admin</option>
       </select>

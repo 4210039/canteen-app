@@ -11,6 +11,17 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <!-- Export: Word (.docx) generation -->
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
+  <!-- Import: Word (.docx) text extraction -->
+  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.12.0/mammoth.browser.min.js"></script>
+  <!-- Import: PDF text extraction -->
+  <script type="module">
+    // pdf.js ships as an ES module — bridge it onto window so the rest of
+    // the app (import.js, loaded as a plain script) can call it the same
+    // way it calls XLSX/mammoth.
+    import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs";
+    pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+    window.pdfjsLib = pdfjsLib;
+  </script>
 </head>
 <body>
 
@@ -430,6 +441,16 @@
       <div id="syncStatus" class="muted" style="margin-top:.6rem"></div>
     </div>
 
+    <div class="card settings-card" id="backupCard">
+      <h3>💾 Úplná záloha</h3>
+      <p class="muted">Stáhne jeden soubor (.json) se vším: jídelníček, docházka, sklad i nákupní seznam.
+      Použijte pro přesun appky na jiný počítač nebo jako pojistku před většími změnami.</p>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem">
+        <button class="btn btn-secondary btn-sm" id="btnBackupDownload">⬇️ Stáhnout úplnou zálohu</button>
+        <button class="btn btn-secondary btn-sm" id="btnBackupRestore">📥 Obnovit ze zálohy</button>
+      </div>
+    </div>
+
     <div class="card settings-card" id="accountCard">
       <h3>👤 Účet</h3>
       <div id="accountInfo" class="muted">Přihlášení není nakonfigurováno (databáze není zapojena).</div>
@@ -616,6 +637,7 @@
           <h3>Mapování sloupců</h3>
           <span id="importRowCount" class="muted"></span>
         </div>
+        <p id="importMappingHint" class="muted import-mapping-hint"></p>
         <div id="importMappingGrid" class="import-mapping-grid"></div>
       </div>
 
@@ -626,6 +648,9 @@
           <table id="importPreviewTable" class="import-preview-table"></table>
         </div>
       </div>
+
+      <!-- Per-row error report (filled by renderImportErrors in import.js) -->
+      <div id="importErrorPane" class="import-pane import-error-pane hidden"></div>
 
       <!-- Actions -->
       <div class="import-actions">

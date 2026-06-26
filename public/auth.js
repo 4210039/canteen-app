@@ -13,15 +13,18 @@ window.AUTH = (function () {
     admin: 'Ředitelka / Admin',
     vedouci: 'Vedoucí jídelny',
     kucharka: 'Kuchařka',
+    tester: 'Tester',
   };
 
   // Tabs each role is allowed to see. Admin and vedouci see everything;
   // kuchařka focuses on daily kitchen operations, not financial/compliance
   // reporting or settings (matches the Sprint 2 role definition).
+  // tester: sees/uses everything EXCEPT audit log and settings.
   const TAB_PERMISSIONS = {
     admin:    ['menu', 'attendance', 'offers', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
     vedouci:  ['menu', 'attendance', 'offers', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
     kucharka: ['menu', 'attendance', 'offers', 'warehouse'],
+    tester:   ['menu', 'attendance', 'offers', 'warehouse', 'finance', 'norms'],
   };
 
   async function init() {

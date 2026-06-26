@@ -617,6 +617,7 @@ input, select { font: inherit; }
 .import-file-info.hidden { display: none; }
 .import-warn  { color: var(--amber); }
 .import-error { color: var(--red); }
+.import-ok    { color: var(--green, #2e7d32); }
 
 .import-paste-area {
   width: 100%; height: 180px; resize: vertical;
@@ -646,6 +647,12 @@ input, select { font: inherit; }
   font-size: .82rem;
 }
 .import-map-row select:focus { outline: none; border-color: var(--green); }
+.import-map-example {
+  font-size: .72rem; min-height: 1em; font-style: italic;
+}
+.import-mapping-hint {
+  font-size: .8rem; line-height: 1.4; margin: 0 0 .75rem; max-width: 60ch;
+}
 
 .import-preview-wrap {
   overflow-x: auto; max-height: 180px; overflow-y: auto;
@@ -670,6 +677,23 @@ input, select { font: inherit; }
   padding: .85rem 1.25rem; border-top: 1px solid var(--border);
   background: var(--surface);
 }
+
+.import-error-pane {
+  background: var(--red-pale); border-top: 1px solid var(--border);
+}
+.import-error-header {
+  font-weight: 600; font-size: .85rem; color: var(--red); margin-bottom: .4rem;
+}
+.import-error-list {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 140px; overflow-y: auto;
+  font-size: .8rem; color: var(--ink-mid);
+}
+.import-error-list li {
+  padding: .2rem 0; border-bottom: 1px dashed var(--border);
+}
+.import-error-list li:last-child { border-bottom: none; }
+
 .audit-desc { color: var(--ink); }
 .audit-who  { color: var(--ink-mid); white-space: nowrap; }
 .audit-when { color: var(--ink-light); white-space: nowrap; font-size: .75rem; }

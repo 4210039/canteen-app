@@ -345,8 +345,8 @@ router.get('/members', async (req, res) => {
 // Only admin can change another user's role.
 router.patch('/members/:userId/role', requireRole('admin'), async (req, res) => {
   const { role } = req.body;
-  if (!['admin', 'vedouci', 'kucharka'].includes(role)) {
-    return res.status(400).json({ error: 'role must be admin, vedouci, or kucharka' });
+  if (!['admin', 'vedouci', 'kucharka', 'tester'].includes(role)) {
+    return res.status(400).json({ error: 'role must be admin, vedouci, kucharka, or tester' });
   }
   const supabase = userScopedClient(req);
   const { data: before } = await supabase

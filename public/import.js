@@ -1,14 +1,25 @@
 /* ═══════════════════════════════════════════════════════════
    import.js – Universal Import Feature
-   Supports: CSV, TXT, XLSX/XLS (via SheetJS), plain text paste
-   Word & PDF: user must copy/paste text content manually
+   Supports: CSV, TXT, XLSX/XLS (via SheetJS), DOCX (via mammoth.js),
+   PDF (via pdf.js), plain text paste, and a full-app JSON backup
+   restore ('backup' section).
+   DOCX/PDF text extraction happens entirely in the browser — the file
+   never leaves the device. Scanned/image-only PDFs and legacy .doc
+   files have no extractable text layer and fall back to manual paste.
 ═══════════════════════════════════════════════════════════ */
 
+// ── Limits ──────────────────────────────────────────────────
+// Guards against freezing the tab on a pathological file. CSV/XLSX
+// rows are cheap; this is generous for a single-canteen use case.
+const IMPORT_MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+const IMPORT_MAX_ROWS       = 20000;            // data rows, header excluded
+
 // ── State ────────────────────────────────────────────────
-let _importSection = null;   // 'menu' | 'attendance' | 'offers' | 'warehouse' | 'finance' | 'norms'
+let _importSection = null;   // 'menu' | 'attendance' | 'offers' | 'warehouse' | 'finance' | 'norms' | 'backup'
 let _importRows    = [];     // array of arrays (header = row[0])
 let _importIsText  = false;  // true when raw text (no column structure)
 let _importRawText = '';
+let _importErrors  = [];     // structured per-row errors: {row, field, reason}[] — shown in UI, not just console
 
 // ── Section config ────────────────────────────────────────
 const IMPORT_CONFIG = {
@@ -20,14 +31,19 @@ const IMPORT_CONFIG = {
   attendance: {
     title: '👦 Import – Docházka',
     mode: 'csv',
+    // NOTE: keys here must match MEALS_LIST in app.js (presnidavka/obed/svacina) —
+    // attendanceData is keyed by these exact strings; a mismatch silently
+    // writes data that never renders or counts toward totals.
     fields: [
-      { key: 'date',     label: 'Datum',            required: true  },
-      { key: 'snidane',  label: 'Snídaně (počet)',  required: false },
-      { key: 'svacina1', label: 'Svačina dop. (počet)', required: false },
-      { key: 'obed',     label: 'Oběd (počet)',     required: true  },
-      { key: 'svacina2', label: 'Svačina odp. (počet)', required: false },
+      { key: 'date',        label: 'Datum',                  required: true  },
+      { key: 'obed',        label: 'Oběd – počet dětí',       required: true  },
+      { key: 'presnidavka', label: 'Přesnídávka – počet dětí',required: false },
+      { key: 'svacina',     label: 'Svačina – počet dětí',    required: false },
     ],
-    hint: 'CSV sloupce: datum, snídaně, svačina_dop, oběd, svačina_odp',
+    hint: 'Každý sloupec vašeho souboru přiřaďte k jednomu poli vlevo. ' +
+      'Datum musí být ve formátu DD.MM.RRRR (např. 12.3.2026) nebo RRRR-MM-DD — ' +
+      'řádky s víkendovým datem se přeskočí, docházka se eviduje jen Po–Pá. ' +
+      'Přesnídávka a svačina jsou nepovinné, klidně je nechte „– nevybráno –", pokud je nesledujete.',
   },
   offers: {
     title: '🏷️ Import – Akce & Nákup',
@@ -73,6 +89,11 @@ const IMPORT_CONFIG = {
     mode: 'text',
     hint: 'Vložte text norem nebo tabulky výživových hodnot. Data budou zobrazena pro ruční přepis.',
   },
+  backup: {
+    title: '💾 Obnovení ze zálohy',
+    mode: 'backup',
+    hint: 'Vyberte soubor zálohy (.json) vytvořený tlačítkem „Stáhnout úplnou zálohu" v Nastavení.',
+  },
 };
 
 // ── Open / Close ─────────────────────────────────────────
@@ -81,6 +102,7 @@ function openImport(section) {
   _importRows    = [];
   _importIsText  = false;
   _importRawText = '';
+  _importErrors  = [];
 
   const cfg = IMPORT_CONFIG[section];
   document.getElementById('importTitle').textContent = cfg.title;
@@ -95,12 +117,26 @@ function openImport(section) {
   document.getElementById('importPasteArea').value = '';
   document.getElementById('importFileInput').value = '';
   document.getElementById('btnDoImport').disabled = true;
+  renderImportErrors();
+
+  const dropZone = document.getElementById('importDropZone');
+  const pasteTab = document.querySelector('.import-src-tab[data-src="paste"]');
+
+  if (cfg.mode === 'backup') {
+    // Backup restore is file-only (JSON) — pasting a backup makes no sense
+    pasteTab?.classList.add('hidden');
+    dropZone.querySelector('.drop-hint').textContent = 'JSON (soubor zálohy)';
+    document.getElementById('importFileInput').accept = '.json';
+  } else {
+    pasteTab?.classList.remove('hidden');
+    document.getElementById('importFileInput').accept = '.csv,.txt,.xlsx,.xls,.docx,.pdf,.json';
+    dropZone.querySelector('.drop-hint').textContent =
+      'CSV · XLSX · XLS · TXT · DOCX · PDF';
+  }
 
   // For text-mode sections, default to paste tab
   if (cfg.mode === 'text') {
     switchImportSrc('paste');
-    document.getElementById('importDropZone').querySelector('.drop-hint').textContent =
-      'CSV · TXT · (для Word & PDF вставте текст)';
   }
 }
 
@@ -140,22 +176,41 @@ async function importFileSelected(file) {
   const ext = file.name.split('.').pop().toLowerCase();
   const info = document.getElementById('importFileInfo');
   info.classList.remove('hidden');
-  info.innerHTML = `<span class="muted">📄 ${file.name} · ${(file.size/1024).toFixed(1)} KB</span>`;
+  info.innerHTML = `<span class="muted">📄 ${escHtml(file.name)} · ${(file.size/1024).toFixed(1)} KB</span>`;
+
+  if (file.size > IMPORT_MAX_FILE_BYTES) {
+    info.innerHTML += `<br><span class="import-error">❌ Soubor je příliš velký
+      (${(file.size/1024/1024).toFixed(1)} MB, limit je ${IMPORT_MAX_FILE_BYTES/1024/1024} MB).
+      Rozdělte data do menších souborů.</span>`;
+    return;
+  }
 
   try {
-    if (ext === 'xlsx' || ext === 'xls') {
+    if (_importSection === 'backup') {
+      if (ext !== 'json') {
+        info.innerHTML += `<br><span class="import-error">❌ Záloha musí být soubor .json.</span>`;
+        return;
+      }
+      await parseBackupFile(file);
+    } else if (ext === 'xlsx' || ext === 'xls') {
       await parseExcelFile(file);
     } else if (ext === 'csv' || ext === 'txt') {
       await parseCsvFile(file);
-    } else if (ext === 'docx' || ext === 'doc' || ext === 'pdf') {
-      info.innerHTML += `<br><span class="import-warn">⚠️ Formát ${ext.toUpperCase()} není přímo podporován. 
-        Zkopírujte text z dokumentu a použijte záložku <strong>📋 Vložit text</strong>.</span>`;
+    } else if (ext === 'docx') {
+      await parseDocxFile(file, info);
+    } else if (ext === 'pdf') {
+      await parsePdfFile(file, info);
+    } else if (ext === 'doc') {
+      // Legacy binary .doc (pre-2007) has no reliable browser-side parser —
+      // mammoth only reads the modern .docx (zip/XML) format.
+      info.innerHTML += `<br><span class="import-warn">⚠️ Starý formát .doc není podporován.
+        Uložte dokument ve Wordu jako .docx, nebo zkopírujte text a použijte záložku <strong>📋 Vložit text</strong>.</span>`;
       switchImportSrc('paste');
     } else {
       await parseCsvFile(file); // attempt as text
     }
   } catch (err) {
-    info.innerHTML += `<br><span class="import-error">❌ Chyba čtení souboru: ${err.message}</span>`;
+    info.innerHTML += `<br><span class="import-error">❌ Chyba čtení souboru: ${escHtml(err.message)}</span>`;
   }
 }
 
@@ -170,9 +225,181 @@ async function parseExcelFile(file) {
   const wb  = XLSX.read(buf, { type: 'array' });
   const ws  = wb.Sheets[wb.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-  _importRows   = data.filter(r => r.some(c => String(c).trim() !== ''));
+  const rows = data.filter(r => r.some(c => String(c).trim() !== ''));
+
+  if (rows.length - 1 > IMPORT_MAX_ROWS) {
+    toast(`Soubor má ${rows.length - 1} řádků dat, limit je ${IMPORT_MAX_ROWS}. Rozdělte import na menší části.`, 'error');
+    return;
+  }
+
+  const cfg = IMPORT_CONFIG[_importSection];
+  if (cfg.mode === 'text') {
+    // Text-mode sections (menu, norms) have no cfg.fields / column mapping —
+    // flatten the sheet into text and feed it through the same path as a
+    // pasted/plain-text import, instead of the CSV column-mapping UI which
+    // would crash here (cfg.fields.forEach on undefined).
+    const text = rows.map(r => r.join('\t')).join('\n');
+    _importRawText = text;
+    parseTextToRows(text);
+    return;
+  }
+
+  _importRows   = rows;
   _importIsText = false;
   afterParse();
+}
+
+// ── Word (.docx) text extraction via mammoth.js ───────────
+// mammoth reads the .docx XML/zip structure directly in the browser and
+// hands back plain text — no server round-trip, same pattern as XLSX.read.
+async function parseDocxFile(file, info) {
+  if (typeof mammoth === 'undefined') {
+    info.innerHTML += `<br><span class="import-error">❌ Knihovna pro čtení .docx se nenahrála
+      (zkontrolujte připojení k internetu a obnovte stránku). Zatím zkopírujte text a použijte
+      záložku <strong>📋 Vložit text</strong>.</span>`;
+    switchImportSrc('paste');
+    return;
+  }
+  const buf = await file.arrayBuffer();
+  const result = await mammoth.extractRawText({ arrayBuffer: buf });
+  const text = (result.value || '').trim();
+
+  if (result.messages && result.messages.length) {
+    // Non-fatal notices from mammoth (e.g. unsupported style) — surface
+    // them quietly, they don't block the import.
+    console.warn('mammoth:', result.messages);
+  }
+  if (!text) {
+    info.innerHTML += `<br><span class="import-error">❌ Z dokumentu se nepodařilo získat žádný text
+      (může jít o naskenovaný obrázek bez textové vrstvy).</span>`;
+    return;
+  }
+  info.innerHTML += `<br><span class="import-ok">✅ Text z .docx extrahován (${text.length} znaků).</span>`;
+  _importRawText = text;
+  parseTextToRows(text);
+}
+
+// ── PDF text extraction via pdf.js ────────────────────────
+// Walks every page, pulling out the positioned text items and joining
+// them back into lines/pages of plain text. Scanned (image-only) PDFs
+// have no text layer and will come back empty — that's a real limit of
+// any browser-side extractor, not something a library upgrade fixes.
+async function parsePdfFile(file, info) {
+  if (typeof window.pdfjsLib === 'undefined') {
+    info.innerHTML += `<br><span class="import-error">❌ Knihovna pro čtení PDF se ještě nenahrála
+      nebo se nenahrála vůbec (zkontrolujte připojení k internetu a obnovte stránku). Zatím
+      zkopírujte text a použijte záložku <strong>📋 Vložit text</strong>.</span>`;
+    switchImportSrc('paste');
+    return;
+  }
+  const buf = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+
+  const pageTexts = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    // Group text items into lines using their y-coordinate, since pdf.js
+    // returns each text run separately with no inherent line breaks.
+    let lastY = null;
+    let line = '';
+    const lines = [];
+    content.items.forEach(item => {
+      const y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) {
+        lines.push(line);
+        line = '';
+      }
+      line += item.str;
+      lastY = y;
+    });
+    if (line) lines.push(line);
+    pageTexts.push(lines.join('\n'));
+  }
+
+  const text = pageTexts.join('\n\n').trim();
+  if (!text) {
+    info.innerHTML += `<br><span class="import-error">❌ Z PDF se nepodařilo získat žádný text
+      (jde nejspíš o naskenovaný dokument bez textové vrstvy — zkuste OCR, nebo zadejte data ručně).</span>`;
+    return;
+  }
+  info.innerHTML += `<br><span class="import-ok">✅ Text z PDF extrahován (${pdf.numPages}
+    ${pdf.numPages === 1 ? 'strana' : 'stran'}, ${text.length} znaků).</span>`;
+  _importRawText = text;
+  parseTextToRows(text);
+}
+
+// ── Backup (full-app JSON restore) ────────────────────────
+let _importBackupData = null; // parsed backup payload, validated, awaiting confirm
+
+async function parseBackupFile(file) {
+  const text = await file.text();
+  const info = document.getElementById('importFileInfo');
+
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (e) {
+    info.innerHTML += `<br><span class="import-error">❌ Neplatný JSON soubor: ${escHtml(e.message)}</span>`;
+    return;
+  }
+
+  const problems = validateBackupPayload(payload);
+  if (problems.length) {
+    _importErrors = problems.map(reason => ({ row: '-', field: '-', reason }));
+    renderImportErrors();
+    info.innerHTML += `<br><span class="import-error">❌ Soubor nevypadá jako platná záloha této appky.</span>`;
+    document.getElementById('btnDoImport').disabled = true;
+    return;
+  }
+
+  _importBackupData = payload;
+  showBackupPreview(payload);
+  document.getElementById('btnDoImport').disabled = false;
+}
+
+// Sanity-checks the shape without trusting it — a backup file is just
+// JSON someone could hand-edit or grab from the wrong app entirely.
+function validateBackupPayload(payload) {
+  const problems = [];
+  if (!payload || typeof payload !== 'object') {
+    problems.push('Soubor neobsahuje objekt na nejvyšší úrovni.');
+    return problems;
+  }
+  if (payload.app !== 'canteen-smart-manager') {
+    problems.push('Chybí nebo nesouhlasí identifikátor appky ("app" pole).');
+  }
+  if (typeof payload.schemaVersion !== 'number') {
+    problems.push('Chybí číslo verze schématu ("schemaVersion").');
+  }
+  if (!payload.data || typeof payload.data !== 'object') {
+    problems.push('Chybí datová sekce ("data").');
+    return problems;
+  }
+  const d = payload.data;
+  if (d.ledger !== undefined && !Array.isArray(d.ledger)) problems.push('"ledger" musí být pole.');
+  if (d.cart !== undefined && !Array.isArray(d.cart)) problems.push('"cart" musí být pole.');
+  if (d.attendance !== undefined && typeof d.attendance !== 'object') problems.push('"attendance" musí být objekt.');
+  return problems;
+}
+
+function showBackupPreview(payload) {
+  document.getElementById('importMappingPane').classList.add('hidden');
+  document.getElementById('importPreviewPane').classList.remove('hidden');
+  const d = payload.data || {};
+  const counts = [
+    ['Jídelníček',  d.currentMenu ? '1 týden' : '–'],
+    ['Docházka',    d.attendance ? Object.keys(d.attendance).length + ' týdnů' : '–'],
+    ['Sklad',       Array.isArray(d.ledger) ? d.ledger.length + ' záznamů' : '–'],
+    ['Nákupní seznam', Array.isArray(d.cart) ? d.cart.length + ' položek' : '–'],
+  ];
+  document.getElementById('importPreviewCount').textContent =
+    payload.exportedAt ? `vytvořeno ${new Date(payload.exportedAt).toLocaleString('cs-CZ')}` : '';
+  document.getElementById('importPreviewTable').innerHTML =
+    '<tr><th>Sekce</th><th>Obsahuje</th></tr>' +
+    counts.map(([label, val]) => `<tr><td>${escHtml(label)}</td><td>${escHtml(val)}</td></tr>`).join('') +
+    `<tr><td colspan="2"><span class="import-warn">⚠️ Obnovení ze zálohy <strong>přepíše</strong>
+      aktuální data ve všech sekcích, které záloha obsahuje. Tuto akci nelze vrátit zpět.</span></td></tr>`;
 }
 
 // ── Paste parsing ─────────────────────────────────────────
@@ -196,6 +423,10 @@ function parseTextToRows(text) {
 
   // Detect CSV vs plain rows
   const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length - 1 > IMPORT_MAX_ROWS) {
+    toast(`Vstup má ${lines.length - 1} řádků dat, limit je ${IMPORT_MAX_ROWS}. Rozdělte import na menší části.`, 'error');
+    return;
+  }
   // Auto-detect separator
   const sep = detectSeparator(lines[0] || '');
   const rows = lines.map(l => splitCsvLine(l, sep));
@@ -228,6 +459,8 @@ function afterParse() {
     toast('Soubor je prázdný nebo nelze přečíst.', 'error');
     return;
   }
+  _importErrors = [];
+  renderImportErrors();
   buildMappingUI();
   buildPreview();
   document.getElementById('importMappingPane').classList.remove('hidden');
@@ -235,6 +468,29 @@ function afterParse() {
   document.getElementById('btnDoImport').disabled = false;
   document.getElementById('importRowCount').textContent =
     `${_importRows.length - 1} řádků dat`;
+}
+
+// ── Error panel ────────────────────────────────────────────
+// Renders the structured _importErrors list into the modal so the user
+// sees exactly which rows failed and why, instead of only a console.warn.
+function renderImportErrors() {
+  const panel = document.getElementById('importErrorPane');
+  if (!panel) return; // backward-compatible if HTML hasn't been updated
+  if (!_importErrors.length) {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+    return;
+  }
+  panel.classList.remove('hidden');
+  const maxShown = 25;
+  const shown = _importErrors.slice(0, maxShown);
+  panel.innerHTML = `
+    <div class="import-error-header">⚠️ ${_importErrors.length} ${_importErrors.length === 1 ? 'problém' : 'problémů'} při zpracování</div>
+    <ul class="import-error-list">
+      ${shown.map(e => `<li><strong>Řádek ${escHtml(String(e.row))}</strong>${e.field && e.field !== '-' ? ` · ${escHtml(e.field)}` : ''}: ${escHtml(e.reason)}</li>`).join('')}
+    </ul>
+    ${_importErrors.length > maxShown ? `<div class="muted" style="font-size:.78rem">… a dalších ${_importErrors.length - maxShown}</div>` : ''}
+  `;
 }
 
 // ── Text preview ──────────────────────────────────────────
@@ -251,15 +507,21 @@ function showTextPreview(text) {
 function buildMappingUI() {
   const cfg    = IMPORT_CONFIG[_importSection];
   const header = _importRows[0] || [];
+  const dataRow = _importRows[1] || []; // first data row, used for the live example preview
   const grid   = document.getElementById('importMappingGrid');
   grid.innerHTML = '';
+
+  const hintEl = document.getElementById('importMappingHint');
+  if (hintEl) hintEl.textContent = cfg.hint || '';
+
+  if (!Array.isArray(cfg.fields)) return; // text-mode/backup sections have no column mapping
 
   cfg.fields.forEach(field => {
     const div = document.createElement('div');
     div.className = 'import-map-row';
 
     const label = document.createElement('label');
-    label.textContent = field.label + (field.required ? ' *' : '');
+    label.textContent = field.label;
     label.className = field.required ? 'required' : '';
 
     const sel = document.createElement('select');
@@ -274,8 +536,22 @@ function buildMappingUI() {
       sel.appendChild(opt);
     });
 
+    // Live example: shows the actual value that will be used for this
+    // field from the first data row, so a person can confirm "yes, that
+    // dropdown really points at the right column" without guessing from
+    // header text alone (which is often ambiguous or missing).
+    const example = document.createElement('span');
+    example.className = 'import-map-example muted';
+    const updateExample = () => {
+      const idx = sel.value;
+      example.textContent = idx === '' ? '' : `→ např. „${dataRow[idx] ?? ''}"`;
+    };
+    sel.addEventListener('change', updateExample);
+    updateExample();
+
     div.appendChild(label);
     div.appendChild(sel);
+    div.appendChild(example);
     grid.appendChild(div);
   });
 }
@@ -288,10 +564,9 @@ const AUTO_MATCH_MAP = {
   store:    ['dodavatel', 'store', 'obchod', 'supplier', 'prodejna'],
   date:     ['datum', 'date', 'den', 'day'],
   type:     ['typ', 'type', 'směr', 'in/out'],
-  obed:     ['oběd', 'obed', 'lunch', 'počet_oběd'],
-  snidane:  ['snídaně', 'snidane', 'breakfast'],
-  svacina1: ['svačina_dop', 'svacina1', 'dopoledni'],
-  svacina2: ['svačina_odp', 'svacina2', 'odpoledni'],
+  obed:        ['oběd', 'obed', 'lunch', 'počet_oběd'],
+  presnidavka: ['přesnídávka', 'presnidavka', 'snídaně', 'snidane', 'breakfast'],
+  svacina:     ['svačina', 'svacina', 'odpolední', 'odpoledni', 'snack'],
 };
 
 function autoMatch(fieldKey, colName) {
@@ -320,11 +595,52 @@ function buildPreview() {
 // ── Import execution ──────────────────────────────────────
 function doImport() {
   const cfg = IMPORT_CONFIG[_importSection];
+  if (cfg.mode === 'backup') {
+    doBackupRestore();
+    return;
+  }
   if (cfg.mode === 'text') {
     doTextImport();
     return;
   }
   doCsvImport();
+}
+
+function doBackupRestore() {
+  if (!_importBackupData) { toast('Nejprve vyberte platný soubor zálohy.', 'error'); return; }
+  if (!confirm('Obnovit data ze zálohy? Aktuální data v sekcích, které záloha obsahuje, budou přepsána. Tuto akci nelze vrátit zpět.')) {
+    return;
+  }
+
+  const d = _importBackupData.data || {};
+  const restored = [];
+
+  if (d.currentMenu !== undefined) {
+    STATE.currentMenu = d.currentMenu;
+    STATE.ingredients = Array.isArray(d.ingredients) ? d.ingredients : (STATE.ingredients || []);
+    saveMenu();
+    restored.push('jídelníček');
+  }
+  if (Array.isArray(d.ledger)) {
+    STATE.ledger = d.ledger;
+    saveLedger();
+    restored.push(`sklad (${d.ledger.length})`);
+  }
+  if (Array.isArray(d.cart)) {
+    STATE.cart = d.cart;
+    saveCart();
+    restored.push(`nákupní seznam (${d.cart.length})`);
+  }
+  if (d.attendance && typeof d.attendance === 'object') {
+    attendanceData = d.attendance;
+    saveAttendance();
+    restored.push(`docházka (${Object.keys(d.attendance).length} týdnů)`);
+  }
+
+  closeImport();
+  if (typeof renderAll === 'function') renderAll();
+  if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
+  toast(`Obnoveno ze zálohy: ${restored.join(', ') || 'žádná sekce nerozpoznána'}.`, restored.length ? 'success' : 'warning');
 }
 
 function doTextImport() {
@@ -375,6 +691,14 @@ function doCsvImport() {
     if (sel && sel.value !== '') colMap[field.key] = parseInt(sel.value, 10);
   });
 
+  // Required fields must be mapped before we even look at rows — otherwise
+  // every row fails with the same unhelpful "missing X" error.
+  const missingRequired = cfg.fields.filter(f => f.required && colMap[f.key] === undefined);
+  if (missingRequired.length) {
+    toast(`Namapujte povinné pole: ${missingRequired.map(f => f.label).join(', ')}.`, 'error');
+    return;
+  }
+
   function val(row, key) { return colMap[key] !== undefined ? String(row[colMap[key]] || '').trim() : ''; }
 
   let imported = 0;
@@ -382,8 +706,7 @@ function doCsvImport() {
 
   switch (_importSection) {
     case 'attendance':
-      importAttendance(data, val, errors);
-      imported = data.length - errors.length;
+      imported = importAttendance(data, val, errors);
       break;
 
     case 'offers':
@@ -396,122 +719,260 @@ function doCsvImport() {
       break;
   }
 
-  closeImport();
-  if (errors.length) {
-    toast(`Import: ${imported} přijato, ${errors.length} chyb.`, 'warning');
-    console.warn('Import errors:', errors);
-  } else {
-    toast(`Importováno ${imported} záznamů!`, 'success');
+  _importErrors = errors;
+  renderImportErrors();
+
+  if (errors.length && imported === 0) {
+    // Nothing usable came through — keep the modal open so the user can
+    // see exactly what's wrong and fix the mapping or the source file.
+    toast(`Import se nezdařil: ${errors.length} ${errors.length === 1 ? 'chyba' : 'chyb'}, 0 záznamů přijato.`, 'error');
+    return;
   }
+
+  if (errors.length) {
+    // Partial success — keep the modal open too, so the error panel
+    // (already rendered above) stays visible instead of vanishing with
+    // the rest of the modal. The user closes it manually once reviewed.
+    toast(`Import: ${imported} přijato, ${errors.length} chyb. Podrobnosti níže.`, 'warning');
+    console.warn('Import errors:', errors);
+    return;
+  }
+
+  closeImport();
+  toast(`Importováno ${imported} záznamů!`, 'success');
 }
 
 // ── Section-specific importers ────────────────────────────
 
 function importAttendance(data, val, errors) {
-  const attKey = typeof getWeekKey === 'function' ? getWeekKey() : '';
-  // Merge into in-memory attendanceData (attendance module's state)
-  const stored = (typeof attendanceData !== 'undefined' ? attendanceData : {});
+  // attendanceData is keyed as { [isoWeekStr]: { [dayIndex 0-4]: { presnidavka, obed, svacina } } } —
+  // see MEALS_LIST / renderAttendanceGrid in app.js. Using any other shape or
+  // key names means the import silently never appears anywhere in the UI.
+  if (typeof attendanceData === 'undefined') {
+    errors.push({ row: '-', field: '-', reason: 'Modul docházky není načten.' });
+    return 0;
+  }
+
+  const bulkRows = []; // for cloud sync, built alongside the local merge
+  let count = 0;
 
   data.forEach((row, i) => {
+    const rowNum = i + 2; // +1 header, +1 to make it 1-based for the user
     const dateRaw = val(row, 'date');
-    if (!dateRaw) { errors.push({ row: i, reason: 'missing date' }); return; }
+    if (!dateRaw) { errors.push({ row: rowNum, field: 'Datum', reason: 'chybí datum' }); return; }
 
-    const day = normalizeDateKey(dateRaw);
-    const entry = {
-      snidane:  parseInt(val(row, 'snidane') || '0', 10)  || 0,
-      svacina1: parseInt(val(row, 'svacina1') || '0', 10) || 0,
-      obed:     parseInt(val(row, 'obed') || '0', 10)     || 0,
-      svacina2: parseInt(val(row, 'svacina2') || '0', 10) || 0,
-    };
-    stored[day] = entry;
+    const normalized = normalizeDateKey(dateRaw);
+    if (normalized === null) { errors.push({ row: rowNum, field: 'Datum', reason: `nelze rozpoznat datum "${dateRaw}"` }); return; }
+    const date = new Date(normalized);
+
+    const dayIndex = (date.getDay() + 6) % 7; // Mon=0..Sun=6
+    if (dayIndex > 4) { errors.push({ row: rowNum, field: 'Datum', reason: 'datum spadá na víkend, docházka se neeviduje' }); return; }
+
+    const weekStr = typeof getISOWeekString === 'function' ? getISOWeekString(date) : null;
+    if (!weekStr) { errors.push({ row: rowNum, field: 'Datum', reason: 'nelze určit týden' }); return; }
+
+    const obed = parseInt(val(row, 'obed'), 10);
+    if (val(row, 'obed') !== '' && isNaN(obed)) {
+      errors.push({ row: rowNum, field: 'Oběd', reason: `neplatné číslo "${val(row, 'obed')}"` }); return;
+    }
+
+    if (!attendanceData[weekStr]) attendanceData[weekStr] = {};
+    if (!attendanceData[weekStr][dayIndex]) attendanceData[weekStr][dayIndex] = {};
+    const cell = attendanceData[weekStr][dayIndex];
+
+    if (val(row, 'presnidavka') !== '') cell.presnidavka = parseInt(val(row, 'presnidavka'), 10) || 0;
+    if (val(row, 'obed')        !== '') cell.obed        = obed || 0;
+    if (val(row, 'svacina')     !== '') cell.svacina     = parseInt(val(row, 'svacina'), 10) || 0;
+
+    // DB schema is one row per (org, week, day, meal) — emit a row for
+    // each meal actually present on this line, not just "obed".
+    ['presnidavka', 'obed', 'svacina'].forEach(meal => {
+      if (cell[meal] === undefined) return;
+      bulkRows.push({
+        org_id:      window.SYNC?.ORG_ID,
+        week_key:    weekStr,
+        day_index:   dayIndex,
+        meal,
+        age_group:   'ms_3_6',
+        child_count: cell[meal],
+      });
+    });
+    count++;
   });
 
-  // Refresh attendance grid if visible
-  if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
+  if (count) {
+    saveAttendance();
+    if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
+  }
+
+  // Cloud sync — best-effort, mirrors the pattern used for ledger imports.
+  if (bulkRows.length && typeof dbPut === 'function' && window.AUTH?.isLoggedIn()) {
+    dbPut('/api/db/attendance/bulk', { rows: bulkRows });
+  }
+
+  return count;
 }
 
 function importOffers(data, val, errors) {
+  if (typeof STATE === 'undefined') {
+    errors.push({ row: '-', field: '-', reason: 'Stav appky není načten.' });
+    return 0;
+  }
+  const cart = STATE.cart || (STATE.cart = []);
+
+  // Duplicate guard: same name+store+qty+unit already in the cart (from a
+  // previous import or manual entry) is almost certainly a re-import of the
+  // same file, not an intentional second copy of the line item.
+  const existingKey = e => `${(e.name||'').toLowerCase().trim()}|${(e.store||'').toLowerCase().trim()}|${e.qty}|${e.unit}`;
+  const seen = new Set(cart.map(existingKey));
+
   let count = 0;
-  const cart = (typeof STATE !== 'undefined' ? (STATE.cart || []) : []);
+  let dupes = 0;
 
   data.forEach((row, i) => {
+    const rowNum = i + 2;
     const name = val(row, 'name');
-    if (!name) { errors.push({ row: i, reason: 'missing name' }); return; }
+    if (!name) { errors.push({ row: rowNum, field: 'Název', reason: 'chybí název suroviny' }); return; }
 
-    cart.push({
+    const qtyRaw = val(row, 'qty');
+    const qty = parseFloat(qtyRaw);
+    if (qtyRaw && isNaN(qty)) { errors.push({ row: rowNum, field: 'Množství', reason: `neplatné číslo "${qtyRaw}"` }); return; }
+
+    const item = {
       id:    Date.now() + Math.random(),
       name,
-      qty:   parseFloat(val(row, 'qty'))   || 1,
+      qty:   qty || 1,
       unit:  val(row, 'unit')  || 'ks',
       price: parseFloat(val(row, 'price')) || 0,
       store: val(row, 'store') || 'Import',
       promo: false,
       source: 'import',
-    });
+    };
+
+    const key = existingKey(item);
+    if (seen.has(key)) { dupes++; return; }
+    seen.add(key);
+
+    cart.push(item);
     count++;
   });
 
-  if (typeof STATE !== 'undefined') STATE.cart = cart;
-  if (typeof renderCart === 'function') renderCart();
-  if (typeof renderShoppingPanel === 'function') renderShoppingPanel();
+  if (count) {
+    saveCart();
+    if (typeof renderShoppingList === 'function') renderShoppingList();
+  }
+  if (dupes) {
+    errors.push({ row: '-', field: '-', reason: `${dupes} ${dupes === 1 ? 'řádek byl přeskočen' : 'řádků bylo přeskočeno'} jako duplicita (stejný název+obchod+množství už v seznamu)` });
+  }
   return count;
 }
 
 function importWarehouse(data, val, errors) {
-  let count = 0;
-  // Use STATE.ledger if available
-  const ledger = (typeof STATE !== 'undefined' && STATE.ledger) || [];
+  if (typeof STATE === 'undefined') {
+    errors.push({ row: '-', field: '-', reason: 'Stav appky není načten.' });
+    return 0;
+  }
+  const ledger = STATE.ledger || (STATE.ledger = []);
+
+  // Duplicate guard: same type+name+store+qty+unit+date already in the
+  // ledger is almost certainly a re-import of the same export file.
+  const existingKey = e => `${e.type}|${(e.name||'').toLowerCase().trim()}|${(e.store||'').toLowerCase().trim()}|${e.qty}|${e.unit}|${(e.date||'').slice(0,10)}`;
+  const seen = new Set(ledger.map(existingKey));
+
+  const newEntries = [];
+  let dupes = 0;
 
   data.forEach((row, i) => {
+    const rowNum = i + 2;
     const name = val(row, 'name');
-    if (!name) { errors.push({ row: i, reason: 'missing name' }); return; }
+    if (!name) { errors.push({ row: rowNum, field: 'Název', reason: 'chybí název suroviny' }); return; }
+
+    const qtyRaw = val(row, 'qty');
+    const qty = parseFloat(qtyRaw);
+    if (qtyRaw && isNaN(qty)) { errors.push({ row: rowNum, field: 'Množství', reason: `neplatné číslo "${qtyRaw}"` }); return; }
+
+    const dateRaw = val(row, 'date');
+    let date;
+    if (!dateRaw) {
+      date = new Date();
+    } else {
+      const normalized = normalizeDateKey(dateRaw);
+      if (normalized === null) { errors.push({ row: rowNum, field: 'Datum', reason: `nelze rozpoznat datum "${dateRaw}"` }); return; }
+      date = new Date(normalized);
+    }
 
     const type  = (val(row, 'type') || 'in').toLowerCase().includes('out') ? 'out' : 'in';
-    const qty   = parseFloat(val(row, 'qty'))   || 1;
     const unit  = val(row, 'unit')  || 'ks';
     const price = parseFloat(val(row, 'price')) || 0;
     const store = val(row, 'store') || 'Import';
-    const dateRaw = val(row, 'date');
-    const date  = dateRaw ? new Date(normalizeDateKey(dateRaw)).toISOString()
-                           : new Date().toISOString();
+    const isoDate = date.toISOString();
 
-    ledger.push({
+    const entry = {
       id:        Date.now() + Math.random(),
       type,
       name,
       foodGroup: null,
-      qty,
+      qty:       qty || 1,
       unit,
-      grams:     typeof toGrams === 'function' ? toGrams(qty, unit) : qty * 100,
+      grams:     typeof toGrams === 'function' ? toGrams(qty || 1, unit) : (qty || 1) * 100,
       price,
       store,
       promo:     false,
-      date,
-      weekKey:   typeof getWeekKey === 'function' ? getWeekKey(new Date(date)) : '',
+      date:      isoDate,
+      weekKey:   typeof getWeekKey === 'function' ? getWeekKey(date) : '',
       source:    'import',
-    });
-    count++;
+      _synced:   false,
+    };
+
+    const key = existingKey(entry);
+    if (seen.has(key)) { dupes++; return; }
+    seen.add(key);
+
+    ledger.push(entry);
+    newEntries.push(entry);
   });
 
-  if (typeof STATE !== 'undefined') STATE.ledger = ledger;
-  // Persist new ledger entries to DB
-  const newEntries = ledger.filter(e => !e._synced);
+  if (newEntries.length) {
+    saveLedger();
+    if (typeof renderWarehouse === 'function') renderWarehouse();
+    if (typeof renderFinance === 'function') renderFinance();
+  }
+  if (dupes) {
+    errors.push({ row: '-', field: '-', reason: `${dupes} ${dupes === 1 ? 'řádek byl přeskočen' : 'řádků bylo přeskočeno'} jako duplicita (stejná surovina+obchod+množství+datum už ve skladu)` });
+  }
+
+  // Persist new entries to DB. Only the entries created by *this* import
+  // call are sent — not "everything currently unsynced" — and each is
+  // marked _synced on success so a future import/sync pass won't resend it.
   if (newEntries.length && typeof dbPost === 'function' && window.AUTH?.isLoggedIn()) {
     const orgId = window.SYNC?.ORG_ID;
-    const inRows  = newEntries.filter(e => e.type === 'in').map(e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: e.source }));
-    const outRows = newEntries.filter(e => e.type === 'out').map(e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: e.source }));
-    if (inRows.length)  dbPost('/api/db/ledger/bulk-in',  { entries: inRows });
-    if (outRows.length) dbPost('/api/db/ledger/bulk-out', { entries: outRows });
+    const toRow = e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: e.source });
+    const inEntries  = newEntries.filter(e => e.type === 'in');
+    const outEntries = newEntries.filter(e => e.type === 'out');
+
+    if (inEntries.length) {
+      dbPost('/api/db/ledger/bulk-in', { entries: inEntries.map(toRow) }).then(result => {
+        if (result) { inEntries.forEach(e => e._synced = true); saveLedger(); }
+      });
+    }
+    if (outEntries.length) {
+      dbPost('/api/db/ledger/bulk-out', { entries: outEntries.map(toRow) }).then(result => {
+        if (result) { outEntries.forEach(e => e._synced = true); saveLedger(); }
+      });
+    }
   }
-  if (typeof renderWarehouse === 'function') renderWarehouse();
-  if (typeof renderFinance === 'function') renderFinance();
-  return count;
+
+  return newEntries.length;
 }
 
 // ── Helpers ───────────────────────────────────────────────
 
 /**
- * Try to parse various date formats into YYYY-MM-DD
+ * Try to parse various date formats into YYYY-MM-DD.
+ * Returns null for genuinely unparseable input — callers must check for
+ * this explicitly. Only a *missing* value (empty string/undefined)
+ * defaults to today; garbage input ("xx.yy.zzzz") must not silently
+ * become "today" or bad data gets attributed to the wrong day.
  */
 function normalizeDateKey(raw) {
   if (!raw) return new Date().toISOString().slice(0, 10);
@@ -525,13 +986,13 @@ function normalizeDateKey(raw) {
   if (ds) return `${ds[3]}-${ds[2].padStart(2, '0')}-${ds[1].padStart(2, '0')}`;
   // Excel serial number
   const num = parseInt(raw, 10);
-  if (!isNaN(num) && num > 40000 && num < 60000) {
+  if (!isNaN(num) && num > 40000 && num < 60000 && /^\d+$/.test(String(raw).trim())) {
     const d = new Date((num - 25569) * 86400 * 1000);
     return d.toISOString().slice(0, 10);
   }
-  // Fallback
+  // Fallback — generic Date parsing, but DO NOT default to today on failure
   const d = new Date(raw);
-  return isNaN(d) ? new Date().toISOString().slice(0, 10) : d.toISOString().slice(0, 10);
+  return isNaN(d) ? null : d.toISOString().slice(0, 10);
 }
 
 function escHtml(s) {
