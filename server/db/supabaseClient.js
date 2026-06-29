@@ -25,7 +25,7 @@ let supabase = null;
 
 function getSupabase() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    return null; // Sprint 1 can run in "localStorage-only" mode if not configured yet
+    return null; // Not configured — callers must surface this as a hard error, not fall back
   }
   if (!supabase) {
     supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {

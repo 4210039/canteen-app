@@ -606,41 +606,92 @@ function doImport() {
   doCsvImport();
 }
 
-function doBackupRestore() {
+async function doBackupRestore() {
   if (!_importBackupData) { toast('Nejprve vyberte platný soubor zálohy.', 'error'); return; }
-  if (!confirm('Obnovit data ze zálohy? Aktuální data v sekcích, které záloha obsahuje, budou přepsána. Tuto akci nelze vrátit zpět.')) {
+  if (!confirm('Obnovit data ze zálohy do databáze? Aktuální data v sekcích, které záloha obsahuje, budou v databázi přepsána pro VŠECHNY uživatele. Tuto akci nelze vrátit zpět.')) {
     return;
   }
 
   const d = _importBackupData.data || {};
   const restored = [];
+  const failed = [];
+  const orgId = window.SYNC.ORG_ID;
 
-  if (d.currentMenu !== undefined) {
-    STATE.currentMenu = d.currentMenu;
-    STATE.ingredients = Array.isArray(d.ingredients) ? d.ingredients : (STATE.ingredients || []);
-    saveMenu();
-    restored.push('jídelníček');
+  toast('Obnovuji ze zálohy do databáze…', 'info');
+
+  // Menu: upsert is keyed on (org_id, week_key), so we need a week_key.
+  // The backup's currentMenu doesn't carry one explicitly — derive it from
+  // fetchedAt the same way fetchMenu() does for a freshly-fetched menu.
+  if (d.currentMenu !== undefined && d.currentMenu !== null) {
+    try {
+      const weekKey = getWeekKey(new Date(d.currentMenu.fetchedAt || Date.now()));
+      await dbPost('/api/db/menus', {
+        org_id: orgId,
+        week_key: weekKey,
+        raw_text: d.currentMenu.raw || '',
+        days_json: d.currentMenu.days || [],
+        ingredients: Array.isArray(d.ingredients) ? d.ingredients : [],
+      });
+      restored.push('jídelníček');
+    } catch (err) { failed.push('jídelníček: ' + err.message); }
   }
+
+  // Ledger: replace entirely — delete every existing row for this org,
+  // then re-insert the backup's rows split by type (the bulk endpoints
+  // only accept one type at a time).
   if (Array.isArray(d.ledger)) {
-    STATE.ledger = d.ledger;
-    saveLedger();
-    restored.push(`sklad (${d.ledger.length})`);
+    try {
+      await Promise.all(STATE.ledger.map(item => dbDelete(`/api/db/ledger/${item.id}`).catch(() => {})));
+      const toEntry = e => ({
+        org_id: orgId, name: e.name, food_group: e.foodGroup || null,
+        qty: e.qty, unit: e.unit, grams: e.grams, price: e.price || 0,
+        store: e.store || '', promo: !!e.promo, week_key: e.weekKey || getWeekKey(),
+        source: e.source || 'manual',
+      });
+      const inRows = d.ledger.filter(e => e.type === 'in').map(toEntry);
+      const outRows = d.ledger.filter(e => e.type === 'out').map(toEntry);
+      if (inRows.length) await dbPost('/api/db/ledger/bulk-in', { entries: inRows });
+      if (outRows.length) await dbPost('/api/db/ledger/bulk-out', { entries: outRows });
+      restored.push(`sklad (${d.ledger.length})`);
+    } catch (err) { failed.push('sklad: ' + err.message); }
   }
+
+  // Attendance: write every (day, meal) cell from every week in the backup.
+  if (d.attendance && typeof d.attendance === 'object') {
+    try {
+      const rows = [];
+      Object.entries(d.attendance).forEach(([week, days]) => {
+        Object.entries(days || {}).forEach(([day, meals]) => {
+          Object.entries(meals || {}).forEach(([meal, count]) => {
+            rows.push({ org_id: orgId, week_key: week, day_index: parseInt(day, 10), meal, age_group: 'ms_3_6', child_count: count });
+          });
+        });
+      });
+      if (rows.length) await dbPut('/api/db/attendance/bulk', { rows });
+      restored.push(`docházka (${Object.keys(d.attendance).length} týdnů)`);
+    } catch (err) { failed.push('docházka: ' + err.message); }
+  }
+
+  // Cart is session-only working state (never persisted to Supabase),
+  // so restoring it just means putting it back into memory for this tab.
   if (Array.isArray(d.cart)) {
     STATE.cart = d.cart;
-    saveCart();
     restored.push(`nákupní seznam (${d.cart.length})`);
   }
-  if (d.attendance && typeof d.attendance === 'object') {
-    attendanceData = d.attendance;
-    saveAttendance();
-    restored.push(`docházka (${Object.keys(d.attendance).length} týdnů)`);
-  }
+
+  // Re-fetch everything from the cloud so the screen reflects exactly
+  // what's now in the database, not what we think we just wrote.
+  await refreshAllFromCloud();
 
   closeImport();
   if (typeof renderAll === 'function') renderAll();
   if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
-  toast(`Obnoveno ze zálohy: ${restored.join(', ') || 'žádná sekce nerozpoznána'}.`, restored.length ? 'success' : 'warning');
+
+  if (failed.length) {
+    toast(`Obnoveno: ${restored.join(', ') || '–'}. Nepodařilo se: ${failed.join('; ')}`, 'error');
+  } else {
+    toast(`Obnoveno ze zálohy do databáze: ${restored.join(', ') || 'žádná sekce nerozpoznána'}.`, restored.length ? 'success' : 'warning');
+  }
 }
 
 function doTextImport() {
@@ -653,13 +704,25 @@ function doTextImport() {
       if (typeof groqParseMenu === 'function') {
         closeImport();
         toast('Analyzuji jídelníček…', 'info');
-        groqParseMenu(text.slice(0, 6000)).then(parsed => {
-          STATE.currentMenu = { fetchedAt: new Date().toISOString(), raw: text, days: parsed };
-          STATE.ingredients = extractIngredients(parsed);
-          saveMenu();
-          renderMenu();
-          renderIngredients();
-          toast('Jídelníček importován!', 'success');
+        groqParseMenu(text.slice(0, 6000)).then(async parsed => {
+          const fetchedAt = new Date().toISOString();
+          const ingredients = extractIngredients(parsed);
+          try {
+            await dbPost('/api/db/menus', {
+              org_id: window.SYNC.ORG_ID,
+              week_key: getWeekKey(new Date(fetchedAt)),
+              raw_text: text,
+              days_json: parsed,
+              ingredients,
+            });
+            STATE.currentMenu = { fetchedAt, raw: text, days: parsed };
+            STATE.ingredients = ingredients;
+            renderMenu();
+            renderIngredients();
+            toast('Jídelníček importován!', 'success');
+          } catch (err) {
+            toast('Jídelníček se nepodařilo uložit do databáze: ' + err.message, 'error');
+          }
         }).catch(err => toast('Chyba analýzy: ' + err.message, 'error'));
       } else {
         toast('Funkce analýzy jídelníčku není dostupná.', 'error');
@@ -679,7 +742,7 @@ function doTextImport() {
   }
 }
 
-function doCsvImport() {
+async function doCsvImport() {
   const cfg    = IMPORT_CONFIG[_importSection];
   const header = _importRows[0] || [];
   const data   = _importRows.slice(1).filter(r => r.some(c => String(c).trim()));
@@ -704,19 +767,24 @@ function doCsvImport() {
   let imported = 0;
   const errors = [];
 
-  switch (_importSection) {
-    case 'attendance':
-      imported = importAttendance(data, val, errors);
-      break;
+  try {
+    switch (_importSection) {
+      case 'attendance':
+        imported = await importAttendance(data, val, errors);
+        break;
 
-    case 'offers':
-      imported = importOffers(data, val, errors);
-      break;
+      case 'offers':
+        imported = importOffers(data, val, errors);
+        break;
 
-    case 'warehouse':
-    case 'finance':
-      imported = importWarehouse(data, val, errors);
-      break;
+      case 'warehouse':
+      case 'finance':
+        imported = await importWarehouse(data, val, errors);
+        break;
+    }
+  } catch (err) {
+    toast('Import se nepodařilo uložit do databáze: ' + err.message, 'error');
+    return;
   }
 
   _importErrors = errors;
@@ -744,7 +812,7 @@ function doCsvImport() {
 
 // ── Section-specific importers ────────────────────────────
 
-function importAttendance(data, val, errors) {
+async function importAttendance(data, val, errors) {
   // attendanceData is keyed as { [isoWeekStr]: { [dayIndex 0-4]: { presnidavka, obed, svacina } } } —
   // see MEALS_LIST / renderAttendanceGrid in app.js. Using any other shape or
   // key names means the import silently never appears anywhere in the UI.
@@ -753,7 +821,8 @@ function importAttendance(data, val, errors) {
     return 0;
   }
 
-  const bulkRows = []; // for cloud sync, built alongside the local merge
+  const bulkRows = [];
+  const affectedWeeks = new Set();
   let count = 0;
 
   data.forEach((row, i) => {
@@ -776,38 +845,33 @@ function importAttendance(data, val, errors) {
       errors.push({ row: rowNum, field: 'Oběd', reason: `neplatné číslo "${val(row, 'obed')}"` }); return;
     }
 
-    if (!attendanceData[weekStr]) attendanceData[weekStr] = {};
-    if (!attendanceData[weekStr][dayIndex]) attendanceData[weekStr][dayIndex] = {};
-    const cell = attendanceData[weekStr][dayIndex];
-
+    const cell = {};
     if (val(row, 'presnidavka') !== '') cell.presnidavka = parseInt(val(row, 'presnidavka'), 10) || 0;
     if (val(row, 'obed')        !== '') cell.obed        = obed || 0;
     if (val(row, 'svacina')     !== '') cell.svacina     = parseInt(val(row, 'svacina'), 10) || 0;
 
     // DB schema is one row per (org, week, day, meal) — emit a row for
     // each meal actually present on this line, not just "obed".
-    ['presnidavka', 'obed', 'svacina'].forEach(meal => {
-      if (cell[meal] === undefined) return;
+    Object.entries(cell).forEach(([meal, value]) => {
       bulkRows.push({
-        org_id:      window.SYNC?.ORG_ID,
+        org_id:      window.SYNC.ORG_ID,
         week_key:    weekStr,
         day_index:   dayIndex,
         meal,
         age_group:   'ms_3_6',
-        child_count: cell[meal],
+        child_count: value,
       });
     });
+    affectedWeeks.add(weekStr);
     count++;
   });
 
-  if (count) {
-    saveAttendance();
+  if (bulkRows.length) {
+    // Write to Supabase FIRST — attendanceData/the grid only update once
+    // this succeeds, so a failed import never shows data that isn't saved.
+    await dbPut('/api/db/attendance/bulk', { rows: bulkRows });
+    await Promise.all([...affectedWeeks].map(w => loadAttendanceWeekFromCloud(w)));
     if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
-  }
-
-  // Cloud sync — best-effort, mirrors the pattern used for ledger imports.
-  if (bulkRows.length && typeof dbPut === 'function' && window.AUTH?.isLoggedIn()) {
-    dbPut('/api/db/attendance/bulk', { rows: bulkRows });
   }
 
   return count;
@@ -858,7 +922,6 @@ function importOffers(data, val, errors) {
   });
 
   if (count) {
-    saveCart();
     if (typeof renderShoppingList === 'function') renderShoppingList();
   }
   if (dupes) {
@@ -867,12 +930,12 @@ function importOffers(data, val, errors) {
   return count;
 }
 
-function importWarehouse(data, val, errors) {
+async function importWarehouse(data, val, errors) {
   if (typeof STATE === 'undefined') {
     errors.push({ row: '-', field: '-', reason: 'Stav appky není načten.' });
     return 0;
   }
-  const ledger = STATE.ledger || (STATE.ledger = []);
+  const ledger = STATE.ledger || [];
 
   // Duplicate guard: same type+name+store+qty+unit+date already in the
   // ledger is almost certainly a re-import of the same export file.
@@ -908,9 +971,7 @@ function importWarehouse(data, val, errors) {
     const isoDate = date.toISOString();
 
     const entry = {
-      id:        Date.now() + Math.random(),
-      type,
-      name,
+      type, name,
       foodGroup: null,
       qty:       qty || 1,
       unit,
@@ -921,45 +982,34 @@ function importWarehouse(data, val, errors) {
       date:      isoDate,
       weekKey:   typeof getWeekKey === 'function' ? getWeekKey(date) : '',
       source:    'import',
-      _synced:   false,
     };
 
     const key = existingKey(entry);
     if (seen.has(key)) { dupes++; return; }
     seen.add(key);
 
-    ledger.push(entry);
     newEntries.push(entry);
   });
 
-  if (newEntries.length) {
-    saveLedger();
-    if (typeof renderWarehouse === 'function') renderWarehouse();
-    if (typeof renderFinance === 'function') renderFinance();
-  }
   if (dupes) {
     errors.push({ row: '-', field: '-', reason: `${dupes} ${dupes === 1 ? 'řádek byl přeskočen' : 'řádků bylo přeskočeno'} jako duplicita (stejná surovina+obchod+množství+datum už ve skladu)` });
   }
 
-  // Persist new entries to DB. Only the entries created by *this* import
-  // call are sent — not "everything currently unsynced" — and each is
-  // marked _synced on success so a future import/sync pass won't resend it.
-  if (newEntries.length && typeof dbPost === 'function' && window.AUTH?.isLoggedIn()) {
-    const orgId = window.SYNC?.ORG_ID;
+  if (newEntries.length) {
+    // Write to Supabase FIRST — the warehouse view only updates once this
+    // succeeds, so a failed import never shows data that isn't really saved.
+    const orgId = window.SYNC.ORG_ID;
     const toRow = e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: e.source });
     const inEntries  = newEntries.filter(e => e.type === 'in');
     const outEntries = newEntries.filter(e => e.type === 'out');
 
-    if (inEntries.length) {
-      dbPost('/api/db/ledger/bulk-in', { entries: inEntries.map(toRow) }).then(result => {
-        if (result) { inEntries.forEach(e => e._synced = true); saveLedger(); }
-      });
-    }
-    if (outEntries.length) {
-      dbPost('/api/db/ledger/bulk-out', { entries: outEntries.map(toRow) }).then(result => {
-        if (result) { outEntries.forEach(e => e._synced = true); saveLedger(); }
-      });
-    }
+    if (inEntries.length)  await dbPost('/api/db/ledger/bulk-in',  { entries: inEntries.map(toRow) });
+    if (outEntries.length) await dbPost('/api/db/ledger/bulk-out', { entries: outEntries.map(toRow) });
+
+    await loadLedgerFromCloud();
+    if (typeof renderWarehouse === 'function') renderWarehouse();
+    if (typeof renderFinance === 'function') renderFinance();
+    if (typeof renderStockBalance === 'function') renderStockBalance();
   }
 
   return newEntries.length;

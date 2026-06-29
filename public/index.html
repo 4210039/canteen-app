@@ -25,9 +25,10 @@
 </head>
 <body>
 
-  <!-- ── Login overlay (Sprint 2) ── -->
-  <!-- Shown when DB is configured but user isn't logged in. Hidden entirely
-       (and app works on localStorage) when DB isn't configured at all. -->
+  <!-- ── Login overlay ── -->
+  <!-- Always used as the gate before the app shows. If the database isn't
+       configured at all, the login/signup forms stay hidden and
+       #dbNotConfiguredError is shown instead — see initAuthFlow() in app.js. -->
   <div id="loginOverlay" class="login-overlay hidden">
     <div class="login-card">
       <div class="login-brand">
@@ -35,6 +36,8 @@
         <h1>Správce jídelny</h1>
         <p class="muted">MŠ Harmonie · Přihlášení</p>
       </div>
+
+      <div id="dbNotConfiguredError" class="login-error hidden"></div>
 
       <div id="loginForm">
         <div class="form-group">
@@ -463,21 +466,11 @@
       <div><h2>Nastavení</h2></div>
     </div>
 
-    <div class="card settings-card hidden" id="syncCard">
-      <h3>☁️ Synchronizace s databází</h3>
-      <p class="muted">Vaše data jsou primárně uložená v tomto prohlížeči. Synchronizace je nahraje
-      do cloudu (Supabase), aby byla dostupná i z jiných zařízení a pro ostatní uživatele.</p>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem">
-        <button class="btn btn-primary btn-sm" id="btnSyncPush">⬆️ Nahrát do cloudu</button>
-        <button class="btn btn-secondary btn-sm" id="btnSyncPull">⬇️ Stáhnout z cloudu</button>
-      </div>
-      <div id="syncStatus" class="muted" style="margin-top:.6rem"></div>
-    </div>
-
     <div class="card settings-card" id="backupCard">
       <h3>💾 Úplná záloha</h3>
-      <p class="muted">Stáhne jeden soubor (.json) se vším: jídelníček, docházka, sklad i nákupní seznam.
-      Použijte pro přesun appky na jiný počítač nebo jako pojistku před většími změnami.</p>
+      <p class="muted">Stáhne jeden soubor (.json) se snímkem dat z databáze: aktuální jídelníček, sklad,
+      a docházku z týdnů, které jste tuto relaci otevřeli v záložce Docházka. Použijte jako pojistku
+      před většími změnami. Obnovení ze zálohy zapíše obsah souboru zpět do databáze pro všechny uživatele.</p>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem">
         <button class="btn btn-secondary btn-sm" id="btnBackupDownload">⬇️ Stáhnout úplnou zálohu</button>
         <button class="btn btn-secondary btn-sm" id="btnBackupRestore">📥 Obnovit ze zálohy</button>
@@ -524,7 +517,7 @@
 
     <div class="card settings-card danger-zone">
       <h3>Správa dat</h3>
-      <p class="muted">Tato akce smaže všechna data uložená v prohlížeči (sklad, finance, jídelníček).</p>
+      <p class="muted">Tato akce trvale smaže všechna data organizace v databázi (sklad, docházka, jídelníčky, nákupní seznamy) — dotkne se všech uživatelů, nejen tohoto prohlížeče.</p>
       <button class="btn btn-danger" id="btnClearData">🗑️ Smazat všechna data</button>
     </div>
   </section>
@@ -747,7 +740,6 @@
 
   <script src="norms.js"></script>
   <script src="auth.js"></script>
-  <script src="sync.js"></script>
   <script src="import.js"></script>
   <script src="export.js"></script>
   <script src="app.js"></script>

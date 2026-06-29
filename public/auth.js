@@ -121,3 +121,18 @@ window.AUTH = (function () {
     ROLE_LABELS, TAB_PERMISSIONS,
   };
 })();
+
+/* ═══════════════════════════════════════════════════════════
+   window.SYNC — org-id accessor only.
+   Supabase is the single source of truth for all app data; there is
+   no client-side push/pull module anymore (everything goes straight
+   through app.js's dbPost/dbPut/dbDelete + refreshAllFromCloud()).
+   This object exists only so the many call sites across app.js and
+   import.js that read window.SYNC.ORG_ID keep working, now backed by
+   the real logged-in user's org_id instead of a hardcoded constant.
+═══════════════════════════════════════════════════════════ */
+window.SYNC = {
+  get ORG_ID() {
+    return window.AUTH?.getProfile()?.org_id || null;
+  },
+};

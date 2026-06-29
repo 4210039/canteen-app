@@ -21,11 +21,15 @@
 const BACKUP_SCHEMA_VERSION = 1;
 
 // ── Full-app backup (separate from per-section export) ─────
-// Captures everything needed to fully restore the app's state, not just
+// Captures a snapshot of what's currently loaded from Supabase, not just
 // one table. Lives outside EXPORT_CONFIG/the export modal because it's a
 // different action (whole-app safety net) from "export this table as
 // a spreadsheet" — triggered from Settings, not from a section's
 // Export button.
+// NOTE: ledger and the current menu are always fully loaded (refreshAllFromCloud
+// pulls them in full), but attendance only contains weeks actually opened in
+// the Docházka tab this session — it is NOT a full dump of every week ever
+// recorded in the database.
 function doExportBackup() {
   const payload = {
     app: 'canteen-smart-manager',
@@ -44,7 +48,7 @@ function doExportBackup() {
     new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8;' }),
     `canteen-zaloha-${isoDate()}.json`
   );
-  toast('Úplná záloha stažena.', 'success');
+  toast('Záloha stažena (sklad a jídelníček kompletní; docházka jen z otevřených týdnů).', 'success');
 }
 
 // ── Section config ────────────────────────────────────────
@@ -61,7 +65,7 @@ const EXPORT_CONFIG = {
   attendance: {
     title:    '👦 Export – Docházka',
     filename: 'dochazka',
-    describe: 'Exportuje docházku ze všech uložených týdnů.',
+    describe: 'Exportuje docházku z týdnů aktuálně načtených v aplikaci (otevřené týdny). Pro jiný týden jej nejprve otevřete v záložce Docházka.',
     headers:  ['Týden', 'Den', 'Jídlo', 'Počet dětí'],
     build:    buildAttendanceRows,
     pdfTitle: 'Docházka dětí',
@@ -184,9 +188,11 @@ function buildMenuRows() {
 }
 
 function buildAttendanceRows() {
-  const data = (typeof attendanceData !== 'undefined' && Object.keys(attendanceData).length)
-    ? attendanceData
-    : JSON.parse(localStorage.getItem('canteen_attendance') || '{}');
+  // attendanceData is populated only from Supabase (loadAttendanceWeekFromCloud),
+  // and only contains weeks the user has actually viewed this session — so an
+  // export only ever covers what's currently loaded in memory, not every week
+  // that exists in the database.
+  const data = (typeof attendanceData !== 'undefined') ? attendanceData : {};
 
   const DAYS_LABELS = ['Pondělí', 'Úterý', 'Středa', 'Čtvrtek', 'Pátek'];
   const MEAL_LABELS = { presnidavka: 'Přesnídávka', obed: 'Oběd', svacina: 'Svačina' };

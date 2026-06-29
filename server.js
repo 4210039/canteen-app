@@ -13,10 +13,11 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ── Sprint 1: database-backed persistence routes ───────────────────────────
+// ── Database-backed persistence routes ─────────────────────────────────────
 // All routes under /api/db/* — see server/dbRoutes.js. Returns 503 with a
-// clear message if SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY aren't set,
-// so the app keeps working in localStorage-only mode during migration.
+// clear message if SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY aren't set.
+// The frontend has no local fallback — without these env vars, the app
+// cannot run at all.
 app.use('/api/db', dbRoutes);
 
 // ── Proxy: fetch school menu page ──────────────────────────────────────────
@@ -100,5 +101,5 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`\n🍽️  Canteen Manager running at http://localhost:${PORT}`);
   console.log(`   Groq API key: ${process.env.GROQ_API_KEY ? '✅ set' : '❌ missing – get free key at https://console.groq.com'}`);
-  console.log(`   Database (Supabase): ${isDbConfigured() ? '✅ configured' : '⚠️  not configured – running in localStorage-only mode'}\n`);
+  console.log(`   Database (Supabase): ${isDbConfigured() ? '✅ configured' : '❌ NOT configured – app cannot run without SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env'}\n`);
 });

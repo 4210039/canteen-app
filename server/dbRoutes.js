@@ -34,8 +34,8 @@ function userScopedClient(req) {
 }
 
 // Guard: if Supabase isn't configured, every DB route returns a clear
-// error instead of crashing, so the app can still run in localStorage
-// mode during the Sprint 1→2 transition period.
+// error instead of crashing. The frontend has no local fallback anymore —
+// this just ensures the failure is a clean JSON error, not a server crash.
 router.use((req, res, next) => {
   if (!isDbConfigured()) {
     return res.status(503).json({
