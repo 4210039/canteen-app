@@ -1623,6 +1623,105 @@ function getCurrentAttWeek() {
   return picker ? picker.value : getISOWeekString();
 }
 
+// Builds the Czech week labels and populates the #attWeekPicker <select>.
+// A native <input type="week"> has no way to force Czech day/month names —
+// that label is rendered entirely by the browser/OS locale, with no
+// override available even with lang="cs" on the page. A <select> with
+// hand-built Czech <option> text sidesteps that completely while staying
+// a normal dropdown (full keyboard/accessibility support, no custom
+// widget to build), which is the actual ask here.
+const MONTH_NAMES_CZ_GENITIVE = ['', 'ledna','února','března','dubna','května','června',
+  'července','srpna','září','října','listopadu','prosince'];
+
+function formatCzDate(d) {
+  return `${d.getDate()}. ${MONTH_NAMES_CZ_GENITIVE[d.getMonth() + 1]}`;
+}
+
+function weekLabelCz(weekStr) {
+  const [yearStr, wPart] = weekStr.split('-W');
+  const dates = getWeekDates(weekStr); // Mon..Fri
+  const mon = dates[0], fri = dates[4];
+  return `Týden ${parseInt(wPart, 10)}, ${yearStr} (${formatCzDate(mon)} – ${formatCzDate(fri)})`;
+}
+
+// Number of ISO weeks in a given year (52 most years, 53 in years where
+// Dec 28 falls in week 53 — e.g. 2026 has 53). Computed from the ISO
+// definition directly rather than a lookup table, so it stays correct
+// for any year without needing maintenance.
+function isoWeeksInYear(year) {
+  return getISOWeekString(new Date(year, 11, 28)).endsWith('W53') ? 53 : 52;
+}
+
+// Populates the year dropdown: 2020 through ten years from now, fixed
+// per the requirement (not a rolling window) — so it always covers the
+// same 2020–<current year>+10 span regardless of what "today" is.
+function populateAttYearSelect(selectedYear) {
+  const select = document.getElementById('attYearPicker');
+  if (!select) return;
+  const endYear = new Date().getFullYear() + 10;
+  const years = [];
+  for (let y = 2020; y <= endYear; y++) years.push(y);
+  select.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  select.value = String(selectedYear || new Date().getFullYear());
+}
+
+// Populates the week dropdown with every ISO week belonging to the given
+// year (52 or 53 of them, via isoWeeksInYear) — a full year, not a
+// rolling window, per the requirement. selectedWeek, if given and it
+// actually belongs to `year`, is pre-selected; otherwise defaults to the
+// current week if `year` is this year, or week 1 otherwise.
+function populateAttWeekSelect(year, selectedWeek) {
+  const select = document.getElementById('attWeekPicker');
+  if (!select) return;
+
+  const totalWeeks = isoWeeksInYear(year);
+  const options = [];
+  for (let w = 1; w <= totalWeeks; w++) {
+    options.push(`${year}-W${String(w).padStart(2, '0')}`);
+  }
+
+  select.innerHTML = options.map(wk =>
+    `<option value="${wk}">${escHtml(weekLabelCz(wk))}</option>`).join('');
+
+  const belongsToYear = selectedWeek && selectedWeek.startsWith(`${year}-W`);
+  if (belongsToYear) {
+    select.value = selectedWeek;
+  } else {
+    const thisYearNow = new Date().getFullYear() === year;
+    select.value = thisYearNow ? getISOWeekString() : `${year}-W01`;
+  }
+}
+
+// Sets the week, keeps both dropdowns in sync, and triggers the same
+// cloud-fetch-and-render flow the picker's change handler runs. In the
+// normal case (user picks a week from the dropdown within the same year)
+// both selects already match weekStr by the time this runs, so nothing
+// gets regenerated — regeneration only happens when the target week
+// belongs to a different year than what's currently shown (year switch,
+// or something jumping to a week outside the current year programmatically).
+async function setAttWeek(weekStr) {
+  const yearSelect = document.getElementById('attYearPicker');
+  const weekSelect = document.getElementById('attWeekPicker');
+  const targetYear = parseInt(weekStr.split('-W')[0], 10);
+
+  if (yearSelect && parseInt(yearSelect.value, 10) !== targetYear) {
+    yearSelect.value = String(targetYear);
+  }
+  if (weekSelect && weekSelect.value !== weekStr) {
+    populateAttWeekSelect(targetYear, weekStr);
+  }
+
+  setStatus('busy', 'Načítám docházku…');
+  try {
+    await loadAttendanceWeekFromCloud(weekStr);
+    setStatus('ok', 'Připraveno');
+  } catch (err) {
+    setStatus('error', 'Chyba načítání');
+    toast('Nepodařilo se načíst docházku: ' + err.message, 'error');
+  }
+  renderAttendanceGrid();
+}
+
 function getISOWeekString(d = new Date()) {
   const date = new Date(d);
   date.setHours(0, 0, 0, 0);
@@ -1977,23 +2076,24 @@ function checkCompliance() {
 // INIT ATTENDANCE & NORMS
 // ══════════════════════════════════════════════════════════
 function initAttendance() {
-  // Set week picker to current week
-  const picker = document.getElementById('attWeekPicker');
-  if (picker) {
-    picker.value = getISOWeekString();
-    picker.addEventListener('change', async () => {
-      const week = picker.value;
-      setStatus('busy', 'Načítám docházku…');
-      try {
-        await loadAttendanceWeekFromCloud(week);
-        setStatus('ok', 'Připraveno');
-      } catch (err) {
-        setStatus('error', 'Chyba načítání');
-        toast('Nepodařilo se načíst docházku: ' + err.message, 'error');
-      }
-      renderAttendanceGrid();
-    });
-  }
+  const currentWeek = getISOWeekString();
+  const currentYear = new Date().getFullYear();
+
+  populateAttYearSelect(currentYear);
+  populateAttWeekSelect(currentYear, currentWeek);
+
+  const yearSelect = document.getElementById('attYearPicker');
+  const weekSelect = document.getElementById('attWeekPicker');
+
+  yearSelect?.addEventListener('change', () => {
+    const year = parseInt(yearSelect.value, 10);
+    populateAttWeekSelect(year); // no selectedWeek → defaults to current week (if this year) or week 1
+    setAttWeek(weekSelect.value);
+  });
+  weekSelect?.addEventListener('change', () => setAttWeek(weekSelect.value));
+
+  // Kick off the initial load for whatever week the selects above landed on.
+  setAttWeek(weekSelect ? weekSelect.value : currentWeek);
 
   const ageSelect = document.getElementById('attAgeGroup');
   if (ageSelect) ageSelect.addEventListener('change', renderAttendanceGrid);

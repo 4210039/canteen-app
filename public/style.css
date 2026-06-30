@@ -235,6 +235,13 @@ input, select { font: inherit; }
 .hint { font-size: .75rem; color: var(--ink-light); margin-top: .2rem; }
 .form-actions { display: flex; gap: .5rem; margin-top: .75rem; }
 
+/* Week dropdown — base input/select styling already comes from
+   .form-group select; this just widens it enough for the full Czech
+   label ("Týden 27, 2026 (29. června – 3. července)") to fit without
+   truncating. */
+.week-select { min-width: 280px; }
+.year-select { min-width: 90px; }
+
 /* ── Finance ──────────────────────────────────────────────── */
 .finance-grid {
   display: grid; gap: .75rem;
