@@ -372,64 +372,117 @@ function loadNakupFromNorms() {
   const grid   = document.getElementById('nakupRezervaGrid');
   const rows   = calc.results.filter(r => r.totalGrams > 0);
 
-  grid.innerHTML = rows.map(r => {
-    const normDisplay = r.totalGrams >= 1000
-      ? `${+(r.totalGrams / 1000).toFixed(2)} kg`
-      : `${r.totalGrams} g`;
-    return `<div class="rezerva-row">
-      <div class="rezerva-label">
-        <span class="rezerva-name">${escHtml(r.label)}</span>
-        <span class="muted rezerva-norm">(výpočet: ${normDisplay})</span>
-      </div>
-      <label class="rezerva-input-wrap">
-        <input type="number" class="rezerva-pct-input" data-key="${escHtml(r.rowKey)}"
-          value="0" min="0" max="200" step="1" />
-        <span class="rezerva-pct-unit">%</span>
-      </label>
-    </div>`;
-  }).join('');
+  document.getElementById('smartBuyToggle').checked = getSmartBuyMode();
+
+  renderNakupGrid(rows);
 
   panel.classList.remove('hidden');
   document.getElementById('shoppingPanel').classList.add('hidden');
-  toast('Zadejte rezervy pro každou kategorii a klikněte „Použít".', 'info');
+  toast('Sklad je zohledněn automaticky — upravte rezervu, pokud chcete koupit víc.', 'info');
+}
+
+const UNIT_OPTIONS = ['%', 'g', 'kg', 'l', 'ml', 'ks', 'bal'];
+
+function renderNakupGrid(rows) {
+  const grid = document.getElementById('nakupRezervaGrid');
+  const stockByRowKey = computeStockByRowKey();
+  const smartOn = getSmartBuyMode();
+  const { rates: rateByRowKey } = computeConsumptionRatePerRowKey(28);
+  const bufferDays = getYearEndTaperedBufferDays();
+
+  grid.innerHTML = rows.map(r => {
+    const inStockGrams = Math.max(0, stockByRowKey[r.rowKey] || 0);
+    const inStockDisplay = inStockGrams >= 1000 ? `${(inStockGrams / 1000).toFixed(2)} kg` : `${Math.round(inStockGrams)} g`;
+
+    let baseNeedGrams;
+    let needLabel;
+    if (smartOn) {
+      const rate = rateByRowKey[r.rowKey] || (r.totalGrams / 7); // fallback: this week's norm spread over 7 days
+      const target = rate * bufferDays;
+      baseNeedGrams = Math.max(0, target - inStockGrams);
+      needLabel = `cíl zásoby na ${bufferDays} dní: ${target >= 1000 ? (target/1000).toFixed(1)+' kg' : Math.round(target)+' g'}`;
+    } else {
+      baseNeedGrams = Math.max(0, r.totalGrams - inStockGrams);
+      needLabel = `týdenní potřeba: ${r.totalGrams >= 1000 ? (r.totalGrams/1000).toFixed(2)+' kg' : r.totalGrams+' g'}`;
+    }
+
+    const toBuyDisplay = baseNeedGrams >= 1000 ? `${(baseNeedGrams / 1000).toFixed(2)} kg` : `${Math.round(baseNeedGrams)} g`;
+
+    return `<div class="rezerva-row" data-rowkey="${escHtml(r.rowKey)}" data-base-grams="${baseNeedGrams}">
+      <div class="rezerva-label">
+        <span class="rezerva-name">${escHtml(r.label)}</span>
+        <span class="muted rezerva-norm">${escHtml(needLabel)} · na skladě: ${inStockDisplay}</span>
+      </div>
+      <div class="rezerva-tobuy">Navrhujeme koupit: <strong>${toBuyDisplay}</strong></div>
+      <label class="rezerva-input-wrap">
+        <span class="muted" style="font-size:.72rem">rezerva navíc:</span>
+        <input type="number" class="rezerva-val-input" data-key="${escHtml(r.rowKey)}" value="0" min="0" step="1" />
+        <select class="rezerva-unit-select" data-key="${escHtml(r.rowKey)}">
+          ${UNIT_OPTIONS.map(u => `<option value="${u}">${u}</option>`).join('')}
+        </select>
+      </label>
+    </div>`;
+  }).join('');
 }
 
 /**
- * Nákup tab: read per-category % inputs, build cart, render shopping list.
+ * Nákup tab: read per-category reserve inputs (% or absolute unit), build
+ * cart from (need − stock) + reserve, render shopping list.
  */
 function applyRezervaAndBuild() {
   const calc = window.LAST_CALC;
   if (!calc || !calc.results?.length) return;
 
-  // Collect per-category buffer values from the input grid
-  const buffers = {};
-  document.querySelectorAll('.rezerva-pct-input').forEach(input => {
-    buffers[input.dataset.key] = Math.max(0, parseFloat(input.value) || 0);
+  // Collect per-category buffer values + their chosen unit
+  const buffers = {}; // rowKey -> { value, unit }
+  document.querySelectorAll('.rezerva-val-input').forEach(input => {
+    const key = input.dataset.key;
+    const unitSelect = document.querySelector(`.rezerva-unit-select[data-key="${CSS.escape(key)}"]`);
+    buffers[key] = { value: Math.max(0, parseFloat(input.value) || 0), unit: unitSelect?.value || '%' };
+  });
+
+  // base (stock-adjusted) grams per row, computed by renderNakupGrid and stashed in the DOM
+  const baseGramsByRowKey = {};
+  document.querySelectorAll('.rezerva-row').forEach(row => {
+    baseGramsByRowKey[row.dataset.rowkey] = parseFloat(row.dataset.baseGrams) || 0;
   });
 
   STATE.cart = calc.results
     .filter(r => r.totalGrams > 0)
     .map(r => {
-      const pct    = buffers[r.rowKey] ?? 0;
-      const grams  = r.totalGrams * (1 + pct / 100);
+      const baseGrams = baseGramsByRowKey[r.rowKey] ?? r.totalGrams;
+      const buf = buffers[r.rowKey] || { value: 0, unit: '%' };
+      let grams;
+      if (buf.unit === '%') {
+        grams = baseGrams * (1 + buf.value / 100);
+      } else {
+        grams = baseGrams + toGrams(buf.value, buf.unit);
+      }
+      grams = Math.max(0, grams);
       return {
         id: 'fg_' + r.rowKey,
         foodGroup: r.key,
         name: r.label,
         qty: grams >= 1000 ? +(grams / 1000).toFixed(2) : +grams.toFixed(0),
         unit: grams >= 1000 ? 'kg' : 'g',
-        neededGrams: r.totalGrams,
-        bufferPct: pct,
+        neededGrams: baseGrams,
+        bufferPct: buf.unit === '%' ? buf.value : null,
+        bufferAbsolute: buf.unit !== '%' ? `${buf.value} ${buf.unit}` : null,
         price: 0,
         store: '',
         promo: false,
         source: 'norms',
       };
-    });
+    })
+    .filter(item => item.qty > 0); // nothing to buy this round — fully covered by stock
 
   document.getElementById('nakupRezervaPanel').classList.add('hidden');
   renderShoppingList();
-  toast('Nákupní seznam vytvořen!', 'success');
+  if (!STATE.cart.length) {
+    toast('Sklad pokrývá vše, co je potřeba — není co nakupovat. 🎉', 'success');
+  } else {
+    toast('Nákupní seznam vytvořen — sklad byl zohledněn!', 'success');
+  }
   setStatus('ok', 'Nákupní seznam připraven');
 }
 
@@ -474,7 +527,7 @@ function renderShoppingList() {
   list.innerHTML = '<div class="shopping-list">' + STATE.cart.map((item, i) =>
     `<div class="shopping-item ${item.source === 'custom' ? 'custom-source' : ''}">
       <input type="checkbox" id="si-${i}" checked onchange="toggleCartItem(${i}, this.checked)" />
-      <label class="si-name" for="si-${i}">${escHtml(item.name)} <span class="muted">(${item.qty} ${item.unit}${item.bufferPct > 0 ? ` · +${item.bufferPct}% zásoby` : ''})</span>
+      <label class="si-name" for="si-${i}">${escHtml(item.name)} <span class="muted">(${item.qty} ${item.unit}${item.bufferPct > 0 ? ` · +${item.bufferPct}% rezervy` : ''}${item.bufferAbsolute ? ` · +${escHtml(item.bufferAbsolute)} rezervy` : ''})</span>
         ${item.source === 'custom' ? `<span class="source-badge">vlastní dodavatel</span>` : ''}
       </label>
       <div>
@@ -1590,6 +1643,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnGenOffers').addEventListener('click', loadShoppingFromNorms);
   document.getElementById('btnGenNakup').addEventListener('click', loadNakupFromNorms);
   document.getElementById('btnApplyRezerva').addEventListener('click', applyRezervaAndBuild);
+  document.getElementById('smartBuyToggle')?.addEventListener('change', (e) => {
+    setSmartBuyMode(e.target.checked);
+    const calc = window.LAST_CALC;
+    if (calc?.results?.length) renderNakupGrid(calc.results.filter(r => r.totalGrams > 0));
+  });
   document.getElementById('btnConfirmPurchase').addEventListener('click', confirmPurchase);
 
   // Child count change → re-render finance
@@ -1873,6 +1931,156 @@ function setZeleninaSplitRatio(pct) {
   return clamped;
 }
 
+// ══════════════════════════════════════════════════════════
+// Shared food-group / zelenina-ovoce classification
+// (used by checkCompliance, stock balance, and the smart-buying planner)
+// ══════════════════════════════════════════════════════════
+const ZELENINA_KEYWORDS = [
+  'mrkev', 'mrkvičk', 'rajče', 'rajčat', 'rajčátk', 'paprik', 'okurk', 'špenát', 'kukuřic',
+  'kapust', 'celer', 'salát', 'kedlubn', 'ředkv', 'řep', 'pórek', 'cibul', 'česnek', 'kapie',
+  'fenykl', 'květák', 'brokolic', 'cuket', 'lilek', 'baklažán', 'hrášk', 'zelí', 'chřest',
+  'tykev', 'dýně', 'řepk', 'pažitk', 'petržel', 'pastinák', 'křen', 'artyčok', 'cherry rajč',
+  'batáty zeleninové', 'zeleninov', 'kořenov', 'brukev', 'mangold', 'rukol', 'polníček',
+];
+const OVOCE_KEYWORDS = [
+  'jablk', 'banán', 'pomeranč', 'hruš', 'mandarink', 'jahod', 'meloun', 'hrozn', 'broskv',
+  'meruňk', 'švestk', 'třešn', 'višn', 'maliny', 'malin', 'borůvk', 'rybíz', 'angrešt',
+  'citron', 'limetk', 'grapefruit', 'kiwi', 'ananas', 'mango', 'avokádo', 'granátov',
+  'datle', 'fík', 'liči', 'nektarink', 'klementink', 'lesní ovoce', 'ovocný mix', 'ovocná mísa',
+  'ovocná miska',
+];
+// NOTE: the generic words 'zelenina' and 'ovoce' are intentionally NOT in
+// either list above. Ledger items created from the shopping-list/"Nákup"
+// flow used to be named after the food-group LABEL itself (e.g. "Zelenina,
+// ovoce"); treating those generic words as classifiers would wrongly dump
+// every such item into one bucket. Since the calc-result split, new entries
+// are named exactly "Zelenina" / "Ovoce", handled as an exact-match case below.
+const FOODGROUP_KEYWORD_MAPPING = {
+  maso:          ['maso', 'kuřec', 'vepřov', 'hovězí', 'sekaná', 'krůt', 'řízek', 'karbanátek', 'drůbež', 'jehně'],
+  ryby:          ['ryb', 'losos', 'treska', 'tuňák', 'pstruh', 'kapr', 'korýš', 'kreveta', 'chobotnic'],
+  mlecneVyrobky: ['mléko', 'sýr', 'jogurt', 'tvaroh', 'máslo', 'smetana', 'kefír', 'mléčn'],
+  tuk:           ['olej', 'tuk volný', 'margarín', 'ghí'],
+  cukr:          ['cukr', 'med', 'džem', 'sirup'],
+  zeleninaOvoce: [...ZELENINA_KEYWORDS, ...OVOCE_KEYWORDS, 'zelenina', 'ovoce'],
+  brambory:      ['brambor', 'batát', 'topinambur'],
+  celozrnne:     ['celozrnn', 'pohanka', 'quinoa', 'amarant', 'ovesn', 'žitn', 'celozr', 'krupice celozrnná'],
+  lustaniny:     ['čočka', 'fazole', 'hrách', 'cizrna', 'tofu', 'luštěnin', 'sója'],
+};
+
+/**
+ * Classify a single ledger item into { groupKey, rowKey, wasTagged }.
+ * rowKey matches the rowKey scheme used by calcIngredients(): for
+ * zeleninaOvoce it's split into 'zeleninaOvoce_zelenina' / 'zeleninaOvoce_ovoce',
+ * everything else uses the plain group key as rowKey.
+ */
+function classifyLedgerItem(item) {
+  let grp = item.foodGroup;
+  let explicitSub = null;
+  if (grp === 'zelenina' || grp === 'ovoce') {
+    // Legacy tag from before the 310/2025 merge.
+    explicitSub = grp;
+    grp = 'zeleninaOvoce';
+  }
+  let wasTagged = !!grp;
+  if (!grp) {
+    const nameLower = item.name.toLowerCase();
+    grp = Object.entries(FOODGROUP_KEYWORD_MAPPING).find(([, kws]) => kws.some(kw => nameLower.includes(kw)))?.[0] || null;
+  }
+  if (!grp) return null;
+
+  if (grp !== 'zeleninaOvoce') return { groupKey: grp, rowKey: grp, wasTagged };
+
+  // Determine zelenina vs. ovoce sub-bucket
+  const nameLower = item.name.toLowerCase();
+  let isOvoce, isZelenina;
+  if (explicitSub) {
+    isOvoce = explicitSub === 'ovoce';
+    isZelenina = explicitSub === 'zelenina';
+  } else {
+    const isExactOvoce = nameLower === 'ovoce';
+    const isExactZelenina = nameLower === 'zelenina';
+    isOvoce = !isExactZelenina && (isExactOvoce || OVOCE_KEYWORDS.some(kw => nameLower.includes(kw)));
+    isZelenina = !isExactOvoce && (isExactZelenina || ZELENINA_KEYWORDS.some(kw => nameLower.includes(kw)));
+  }
+  let sub;
+  if (isOvoce && !isZelenina) sub = 'ovoce';
+  else if (isZelenina && !isOvoce) sub = 'zelenina';
+  else sub = null; // ambiguous — caller decides (ratio split)
+  return { groupKey: grp, rowKey: sub ? `zeleninaOvoce_${sub}` : null, wasTagged, ambiguousZeleninaOvoce: !sub };
+}
+
+/**
+ * Current stock balance per rowKey (grams), using ALL ledger history
+ * (not just last 30 days) — sum of IN minus OUT, classified the same
+ * way as compliance. Negative balances are floored to 0 for purchasing
+ * purposes (you can't have negative stock to "use up").
+ */
+function computeStockByRowKey() {
+  const balance = {};
+  for (const e of STATE.ledger) {
+    const c = classifyLedgerItem(e);
+    if (!c) continue;
+    const rowKey = c.rowKey || (c.ambiguousZeleninaOvoce
+      ? (getZeleninaSplitRatio() >= 50 ? 'zeleninaOvoce_zelenina' : 'zeleninaOvoce_ovoce') // arbitrary but consistent
+      : c.groupKey);
+    const grams = e.grams || toGrams(e.qty, e.unit);
+    const sign = e.type === 'in' ? 1 : -1;
+    balance[rowKey] = (balance[rowKey] || 0) + sign * grams;
+  }
+  return balance;
+}
+
+/**
+ * Average daily consumption rate per rowKey (g/day), from actual
+ * "spotřeba" (OUT) entries over the trailing window. Falls back to IN
+ * entries (purchases) as a proxy if no OUT entries exist yet — same
+ * fallback checkCompliance already uses.
+ */
+function computeConsumptionRatePerRowKey(days = 28) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  let entries = STATE.ledger.filter(e => e.type === 'out' && new Date(e.date) >= since);
+  let usedFallback = false;
+  if (!entries.length) {
+    entries = STATE.ledger.filter(e => e.type === 'in' && new Date(e.date) >= since);
+    usedFallback = true;
+  }
+  const totals = {};
+  for (const e of entries) {
+    const c = classifyLedgerItem(e);
+    if (!c) continue;
+    const rowKey = c.rowKey || (c.ambiguousZeleninaOvoce
+      ? (getZeleninaSplitRatio() >= 50 ? 'zeleninaOvoce_zelenina' : 'zeleninaOvoce_ovoce')
+      : c.groupKey);
+    const grams = e.grams || toGrams(e.qty, e.unit);
+    totals[rowKey] = (totals[rowKey] || 0) + grams;
+  }
+  const rates = {};
+  for (const [k, v] of Object.entries(totals)) rates[k] = v / days;
+  return { rates, usedFallback };
+}
+
+/**
+ * How many days of stock buffer to target right now, tapering down to 0
+ * as the calendar year-end approaches — so stock doesn't pile up with
+ * nothing left to use it for after 31. 12. Outside the taper window,
+ * returns the full base buffer.
+ */
+function getYearEndTaperedBufferDays(baseBufferDays = 14, taperWindowDays = 56) {
+  const now = new Date();
+  const yearEnd = new Date(now.getFullYear(), 11, 31);
+  const daysLeft = Math.max(0, Math.round((yearEnd - now) / 86400000));
+  if (daysLeft >= taperWindowDays) return baseBufferDays;
+  return Math.round(baseBufferDays * (daysLeft / taperWindowDays));
+}
+
+function getSmartBuyMode() {
+  return localStorage.getItem('smartBuyMode') === 'on';
+}
+function setSmartBuyMode(on) {
+  localStorage.setItem('smartBuyMode', on ? 'on' : 'off');
+}
+
 function calcIngredients() {
   const weekStr = getCurrentAttWeek();
   const ageGroup = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
@@ -2049,44 +2257,8 @@ function checkCompliance() {
     return;
   }
 
-  // Fallback keyword mapping — only used for items without an explicit foodGroup
-  // (e.g. old manually-added items, or items predating this feature)
-  // zeleninaKeywords/ovoceKeywords below are ONLY used to split the display
-  // in "Vlastní zobrazení" (custom view) — the official compliance % always
-  // comes from the combined zeleninaOvoce bucket, per Vyhláška 310/2025.
-  const zeleninaKeywords = [
-    'mrkev', 'mrkvičk', 'rajče', 'rajčat', 'rajčátk', 'paprik', 'okurk', 'špenát', 'kukuřic',
-    'kapust', 'celer', 'salát', 'kedlubn', 'ředkv', 'řep', 'pórek', 'cibul', 'česnek', 'kapie',
-    'fenykl', 'květák', 'brokolic', 'cuket', 'lilek', 'baklažán', 'hrášk', 'zelí', 'chřest',
-    'tykev', 'dýně', 'řepk', 'pažitk', 'petržel', 'pastinák', 'křen', 'artyčok', 'cherry rajč',
-    'batáty zeleninové', 'zeleninov', 'kořenov', 'brukev', 'mangold', 'rukol', 'polníček',
-  ];
-  const ovoceKeywords = [
-    'jablk', 'banán', 'pomeranč', 'hruš', 'mandarink', 'jahod', 'meloun', 'hrozn', 'broskv',
-    'meruňk', 'švestk', 'třešn', 'višn', 'maliny', 'malin', 'borůvk', 'rybíz', 'angrešt',
-    'citron', 'limetk', 'grapefruit', 'kiwi', 'ananas', 'mango', 'avokádo', 'granátov',
-    'datle', 'fík', 'liči', 'nektarink', 'klementink', 'lesní ovoce', 'ovocný mix', 'ovocná mísa',
-    'ovocná miska',
-  ];
-  // NOTE: the generic words 'zelenina' and 'ovoce' are intentionally NOT in
-  // either list above. Ledger items created from the shopping-list/"Nákup"
-  // flow are named after the food-group LABEL itself (e.g. "Zelenina,
-  // ovoce" — see applyRezervaAndBuild and similar), not an actual product
-  // name. Treating those generic words as classifiers would wrongly dump
-  // every such item into one bucket (the substring "ovoce" always matches
-  // first). Items with no specific produce keyword are split 50/50 instead,
-  // since the name genuinely gives no info about the real composition.
-  const groupMapping = {
-    maso:          ['maso', 'kuřec', 'vepřov', 'hovězí', 'sekaná', 'krůt', 'řízek', 'karbanátek', 'drůbež', 'jehně'],
-    ryby:          ['ryb', 'losos', 'treska', 'tuňák', 'pstruh', 'kapr', 'korýš', 'kreveta', 'chobotnic'],
-    mlecneVyrobky: ['mléko', 'sýr', 'jogurt', 'tvaroh', 'máslo', 'smetana', 'kefír', 'mléčn'],
-    tuk:           ['olej', 'tuk volný', 'margarín', 'ghí'],
-    cukr:          ['cukr', 'med', 'džem', 'sirup'],
-    zeleninaOvoce: [...zeleninaKeywords, ...ovoceKeywords, 'zelenina', 'ovoce'],
-    brambory:      ['brambor', 'batát', 'topinambur'],
-    celozrnne:     ['celozrnn', 'pohanka', 'quinoa', 'amarant', 'ovesn', 'žitn', 'celozr', 'krupice celozrnná'],
-    lustaniny:     ['čočka', 'fazole', 'hrách', 'cizrna', 'tofu', 'luštěnin', 'sója'],
-  };
+  // Classification uses the shared classifyLedgerItem() helper (module scope)
+  // so compliance, stock balance, and the smart-buying planner all agree.
 
   let taggedCount = 0, guessedCount = 0;
 
@@ -2096,51 +2268,24 @@ function checkCompliance() {
   const actualGrams = {};
   const subSplit = { zelenina: 0, ovoce: 0 };
   for (const item of recentItems) {
-    let grp = item.foodGroup;
-    let explicitSub = null; // 'zelenina' | 'ovoce' if the item carries a legacy explicit tag
-    if (grp === 'zelenina' || grp === 'ovoce') {
-      // Legacy tag from before the 310/2025 merge (a DB migration meant to
-      // rewrite these to 'zeleninaOvoce' targeted the wrong table name and
-      // never ran) — normalize here so these rows aren't silently dropped.
-      explicitSub = grp;
-      grp = 'zeleninaOvoce';
-    }
-    if (grp) {
-      taggedCount++;
-    } else {
-      // Fallback: guess from name
-      const nameLower = item.name.toLowerCase();
-      grp = Object.entries(groupMapping).find(([, kws]) => kws.some(kw => nameLower.includes(kw)))?.[0];
-      if (grp) guessedCount++;
-    }
-    if (!grp) continue;
+    const c = classifyLedgerItem(item);
+    if (!c) continue;
+    if (c.wasTagged) taggedCount++; else guessedCount++;
+
     const grams = item.grams || toGrams(item.qty, item.unit);
     const gramsPerDay = grams / workingDays / avgChildren;
-    actualGrams[grp] = (actualGrams[grp] || 0) + gramsPerDay;
+    actualGrams[c.groupKey] = (actualGrams[c.groupKey] || 0) + gramsPerDay;
 
-    if (grp === 'zeleninaOvoce') {
-      if (explicitSub) {
-        // Legacy explicit tag (pre-310/2025 data) — trust it directly.
-        if (explicitSub === 'ovoce') subSplit.ovoce += gramsPerDay;
-        else subSplit.zelenina += gramsPerDay;
+    if (c.groupKey === 'zeleninaOvoce') {
+      if (c.rowKey === 'zeleninaOvoce_ovoce') {
+        subSplit.ovoce += gramsPerDay;
+      } else if (c.rowKey === 'zeleninaOvoce_zelenina') {
+        subSplit.zelenina += gramsPerDay;
       } else {
-        const nameLower = item.name.toLowerCase();
-        const isExactOvoce = nameLower === 'ovoce';
-        const isExactZelenina = nameLower === 'zelenina';
-        const isOvoce = !isExactZelenina && (isExactOvoce || ovoceKeywords.some(kw => nameLower.includes(kw)));
-        const isZelenina = !isExactOvoce && (isExactZelenina || zeleninaKeywords.some(kw => nameLower.includes(kw)));
-        if (isOvoce && !isZelenina) {
-          subSplit.ovoce += gramsPerDay;
-        } else if (isZelenina && !isOvoce) {
-          subSplit.zelenina += gramsPerDay;
-        } else {
-          // Still ambiguous (e.g. a generic combined label, or a name
-          // matching both lists) — fall back to your configured ratio
-          // rather than an arbitrary 50/50.
-          const r = getZeleninaSplitRatio() / 100;
-          subSplit.zelenina += gramsPerDay * r;
-          subSplit.ovoce += gramsPerDay * (1 - r);
-        }
+        // Still ambiguous — fall back to your configured ratio rather than an arbitrary 50/50.
+        const r = getZeleninaSplitRatio() / 100;
+        subSplit.zelenina += gramsPerDay * r;
+        subSplit.ovoce += gramsPerDay * (1 - r);
       }
     }
   }

@@ -798,21 +798,31 @@ input, select { font: inherit; }
   display: flex; align-items: center; justify-content: space-between;
   background: var(--white); border: 1px solid var(--border);
   border-radius: 8px; padding: .55rem .85rem;
-  gap: 1rem;
+  gap: 1rem; flex-wrap: wrap;
 }
 .rezerva-label {
-  display: flex; flex-direction: column; gap: .1rem; flex: 1;
+  display: flex; flex-direction: column; gap: .1rem; flex: 1; min-width: 180px;
 }
 .rezerva-name { font-weight: 600; font-size: .88rem; }
 .rezerva-norm { font-size: .78rem; }
+.rezerva-tobuy { font-size: .82rem; color: var(--green); flex-shrink: 0; }
 .rezerva-input-wrap {
   display: flex; align-items: center; gap: .35rem; flex-shrink: 0;
 }
-.rezerva-pct-input {
+.rezerva-pct-input, .rezerva-val-input {
   width: 60px; padding: .3rem .4rem;
   border: 1.5px solid var(--border); border-radius: 6px;
   font-size: .9rem; text-align: center;
   background: var(--surface); color: var(--ink);
 }
-.rezerva-pct-input:focus { outline: none; border-color: var(--green); }
+.rezerva-pct-input:focus, .rezerva-val-input:focus { outline: none; border-color: var(--green); }
 .rezerva-pct-unit { font-size: .82rem; color: var(--ink-light); }
+.rezerva-unit-select {
+  padding: .3rem .35rem; border: 1.5px solid var(--border); border-radius: 6px;
+  font-size: .82rem; background: var(--surface); color: var(--ink); font-family: inherit;
+}
+.smart-buy-toggle {
+  display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--ink-light);
+  margin: .5rem 0 .25rem; cursor: pointer;
+}
+.smart-buy-toggle input { width: 16px; height: 16px; cursor: pointer; }

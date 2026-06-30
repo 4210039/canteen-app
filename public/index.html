@@ -226,12 +226,16 @@
     <!-- Per-category reserve inputs — rendered by JS into this container -->
     <div id="nakupRezervaPanel" class="hidden">
       <div class="section-title">
-        <h3>Rezerva na zásobu — podle kategorie</h3>
-        <p class="muted" style="font-size:.82rem;margin-top:.2rem">Zadejte % navíc pro každou kategorii (0 = bez rezervy)</p>
+        <h3>Co dokoupit — podle skladu a kategorie</h3>
+        <p class="muted" style="font-size:.82rem;margin-top:.2rem">Sklad se odečítá automaticky. Rezervu lze zadat v % nebo přímo v g / kg / l / ks.</p>
       </div>
+      <label class="smart-buy-toggle">
+        <input type="checkbox" id="smartBuyToggle" />
+        🧠 Chytré dlouhodobé plánování (zohlední spotřebu a postupně utlumí nákup ke konci kalendářního roku)
+      </label>
       <div id="nakupRezervaGrid" class="rezerva-grid"></div>
       <div style="margin-top:.75rem">
-        <button class="btn btn-primary btn-sm" id="btnApplyRezerva">✅ Použít rezervy a vytvořit seznam</button>
+        <button class="btn btn-primary btn-sm" id="btnApplyRezerva">✅ Použít a vytvořit seznam</button>
       </div>
     </div>
 
