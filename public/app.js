@@ -382,7 +382,7 @@ function loadNakupFromNorms() {
         <span class="muted rezerva-norm">(výpočet: ${normDisplay})</span>
       </div>
       <label class="rezerva-input-wrap">
-        <input type="number" class="rezerva-pct-input" data-key="${escHtml(r.key)}"
+        <input type="number" class="rezerva-pct-input" data-key="${escHtml(r.rowKey)}"
           value="0" min="0" max="200" step="1" />
         <span class="rezerva-pct-unit">%</span>
       </label>
@@ -410,10 +410,10 @@ function applyRezervaAndBuild() {
   STATE.cart = calc.results
     .filter(r => r.totalGrams > 0)
     .map(r => {
-      const pct    = buffers[r.key] ?? 0;
+      const pct    = buffers[r.rowKey] ?? 0;
       const grams  = r.totalGrams * (1 + pct / 100);
       return {
-        id: 'fg_' + r.key,
+        id: 'fg_' + r.rowKey,
         foodGroup: r.key,
         name: r.label,
         qty: grams >= 1000 ? +(grams / 1000).toFixed(2) : +grams.toFixed(0),
@@ -1862,6 +1862,17 @@ async function copyPrevWeek() {
 }
 
 // ── Ingredient calculator from attendance + norms ──────────
+function getZeleninaSplitRatio() {
+  const v = parseFloat(localStorage.getItem('zeleninaSplitRatio'));
+  return Number.isFinite(v) && v >= 0 && v <= 100 ? v : 50; // % that is zelenina
+}
+
+function setZeleninaSplitRatio(pct) {
+  const clamped = Math.max(0, Math.min(100, parseFloat(pct) || 0));
+  localStorage.setItem('zeleninaSplitRatio', clamped);
+  return clamped;
+}
+
 function calcIngredients() {
   const weekStr = getCurrentAttWeek();
   const ageGroup = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
@@ -1885,7 +1896,8 @@ function calcIngredients() {
 
   // Calculate required grams per food group per meal
   const N = window.NORMS;
-  const results = Object.entries(N.foodGroups).map(([key, group]) => {
+  const zeleninaRatio = getZeleninaSplitRatio() / 100; // your own estimate — 310/2025 sets no official sub-split
+  const results = Object.entries(N.foodGroups).flatMap(([key, group]) => {
     let totalGrams = 0;
     const breakdown = MEALS_LIST.map(m => {
       const children = mealTotals[m.key];
@@ -1894,12 +1906,29 @@ function calcIngredients() {
       return `${m.label}: ${g} g (${children} dětí)`;
     });
 
+    if (key === 'zeleninaOvoce') {
+      // Split into two genuinely-named rows so every downstream flow
+      // (Nákup cart, Sklad příjem/spotřeba) records "Zelenina" and "Ovoce"
+      // as distinct ledger entries instead of one generic combined label
+      // — that generic label was the cause of the 100%-into-one-bucket
+      // misclassification. Ratio is your own setting, since the decree
+      // itself defines only the combined target.
+      const zeleninaGrams = Math.round(totalGrams * zeleninaRatio);
+      const ovoceGrams = totalGrams - zeleninaGrams;
+      const mk = (label, grams, suffix) => ({
+        key, rowKey: `${key}_${suffix}`, label, totalGrams: grams,
+        displayAmt: grams >= 1000 ? `${(grams / 1000).toFixed(1)} kg` : `${grams} g`,
+        breakdown, color: group.color,
+      });
+      return [mk('Zelenina', zeleninaGrams, 'zelenina'), mk('Ovoce', ovoceGrams, 'ovoce')];
+    }
+
     // Convert to practical units
     const displayAmt = totalGrams >= 1000
       ? `${(totalGrams / 1000).toFixed(1)} kg`
       : `${totalGrams} g`;
 
-    return { key, label: group.label, totalGrams, displayAmt, breakdown, color: group.color };
+    return [{ key, rowKey: key, label: group.label, totalGrams, displayAmt, breakdown, color: group.color }];
   });
 
   // Store globally so Shopping List (Akce & Nákup) and Sklad (consume week) can use it
@@ -1975,6 +2004,33 @@ function renderFreqRules() {
     </div>`).join('');
 }
 
+function getComplianceViewMode() {
+  return localStorage.getItem('complianceViewMode') === 'custom' ? 'custom' : 'official';
+}
+
+function setComplianceViewMode(mode) {
+  localStorage.setItem('complianceViewMode', mode === 'custom' ? 'custom' : 'official');
+  renderComplianceViewToggle();
+  checkCompliance();
+}
+
+function renderComplianceViewToggle() {
+  const mode = getComplianceViewMode();
+  document.querySelectorAll('#compViewToggle .cvt-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  const hint = document.getElementById('compViewHint');
+  if (hint) {
+    hint.textContent = mode === 'custom'
+      ? '🎛️ Vlastní zobrazení: Zelenina a Ovoce zvlášť (% sdílené, dle vyhlášky), Celozrnné obiloviny a pseudoobiloviny skryté.'
+      : '📜 Nejnovější pravidla: přesně dle Vyhl. č. 107/2005 Sb., ve znění Vyhl. č. 310/2025 Sb.';
+  }
+  const ratioRow = document.getElementById('compRatioRow');
+  if (ratioRow) ratioRow.style.display = mode === 'custom' ? 'flex' : 'none';
+  const ratioInput = document.getElementById('zeleninaRatioInput');
+  if (ratioInput && document.activeElement !== ratioInput) ratioInput.value = getZeleninaSplitRatio();
+}
+
 function checkCompliance() {
   const N = window.NORMS;
   const ageKey = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
@@ -1995,15 +2051,38 @@ function checkCompliance() {
 
   // Fallback keyword mapping — only used for items without an explicit foodGroup
   // (e.g. old manually-added items, or items predating this feature)
+  // zeleninaKeywords/ovoceKeywords below are ONLY used to split the display
+  // in "Vlastní zobrazení" (custom view) — the official compliance % always
+  // comes from the combined zeleninaOvoce bucket, per Vyhláška 310/2025.
+  const zeleninaKeywords = [
+    'mrkev', 'mrkvičk', 'rajče', 'rajčat', 'rajčátk', 'paprik', 'okurk', 'špenát', 'kukuřic',
+    'kapust', 'celer', 'salát', 'kedlubn', 'ředkv', 'řep', 'pórek', 'cibul', 'česnek', 'kapie',
+    'fenykl', 'květák', 'brokolic', 'cuket', 'lilek', 'baklažán', 'hrášk', 'zelí', 'chřest',
+    'tykev', 'dýně', 'řepk', 'pažitk', 'petržel', 'pastinák', 'křen', 'artyčok', 'cherry rajč',
+    'batáty zeleninové', 'zeleninov', 'kořenov', 'brukev', 'mangold', 'rukol', 'polníček',
+  ];
+  const ovoceKeywords = [
+    'jablk', 'banán', 'pomeranč', 'hruš', 'mandarink', 'jahod', 'meloun', 'hrozn', 'broskv',
+    'meruňk', 'švestk', 'třešn', 'višn', 'maliny', 'malin', 'borůvk', 'rybíz', 'angrešt',
+    'citron', 'limetk', 'grapefruit', 'kiwi', 'ananas', 'mango', 'avokádo', 'granátov',
+    'datle', 'fík', 'liči', 'nektarink', 'klementink', 'lesní ovoce', 'ovocný mix', 'ovocná mísa',
+    'ovocná miska',
+  ];
+  // NOTE: the generic words 'zelenina' and 'ovoce' are intentionally NOT in
+  // either list above. Ledger items created from the shopping-list/"Nákup"
+  // flow are named after the food-group LABEL itself (e.g. "Zelenina,
+  // ovoce" — see applyRezervaAndBuild and similar), not an actual product
+  // name. Treating those generic words as classifiers would wrongly dump
+  // every such item into one bucket (the substring "ovoce" always matches
+  // first). Items with no specific produce keyword are split 50/50 instead,
+  // since the name genuinely gives no info about the real composition.
   const groupMapping = {
     maso:          ['maso', 'kuřec', 'vepřov', 'hovězí', 'sekaná', 'krůt', 'řízek', 'karbanátek', 'drůbež', 'jehně'],
     ryby:          ['ryb', 'losos', 'treska', 'tuňák', 'pstruh', 'kapr', 'korýš', 'kreveta', 'chobotnic'],
     mlecneVyrobky: ['mléko', 'sýr', 'jogurt', 'tvaroh', 'máslo', 'smetana', 'kefír', 'mléčn'],
     tuk:           ['olej', 'tuk volný', 'margarín', 'ghí'],
     cukr:          ['cukr', 'med', 'džem', 'sirup'],
-    zeleninaOvoce: ['mrkev', 'rajče', 'paprika', 'okurka', 'špenát', 'kukuřice', 'kapusta', 'celer', 'zelenina',
-                    'jablk', 'banán', 'pomeranč', 'hruška', 'mandarink', 'jahod', 'meloun', 'hrozn', 'ovoce',
-                    'salát', 'kedlubn', 'ředkv', 'řepa', 'pórek', 'cibule', 'česnek'],
+    zeleninaOvoce: [...zeleninaKeywords, ...ovoceKeywords, 'zelenina', 'ovoce'],
     brambory:      ['brambor', 'batát', 'topinambur'],
     celozrnne:     ['celozrnn', 'pohanka', 'quinoa', 'amarant', 'ovesn', 'žitn', 'celozr', 'krupice celozrnná'],
     lustaniny:     ['čočka', 'fazole', 'hrách', 'cizrna', 'tofu', 'luštěnin', 'sója'],
@@ -2011,10 +2090,21 @@ function checkCompliance() {
 
   let taggedCount = 0, guessedCount = 0;
 
-  // Sum actual grams per food group
+  // Sum actual grams per food group, plus a zelenina/ovoce sub-split
+  // (display-only — used only by the custom view, never affects the
+  // official compliance % which is always computed from the combined total).
   const actualGrams = {};
+  const subSplit = { zelenina: 0, ovoce: 0 };
   for (const item of recentItems) {
     let grp = item.foodGroup;
+    let explicitSub = null; // 'zelenina' | 'ovoce' if the item carries a legacy explicit tag
+    if (grp === 'zelenina' || grp === 'ovoce') {
+      // Legacy tag from before the 310/2025 merge (a DB migration meant to
+      // rewrite these to 'zeleninaOvoce' targeted the wrong table name and
+      // never ran) — normalize here so these rows aren't silently dropped.
+      explicitSub = grp;
+      grp = 'zeleninaOvoce';
+    }
     if (grp) {
       taggedCount++;
     } else {
@@ -2027,35 +2117,95 @@ function checkCompliance() {
     const grams = item.grams || toGrams(item.qty, item.unit);
     const gramsPerDay = grams / workingDays / avgChildren;
     actualGrams[grp] = (actualGrams[grp] || 0) + gramsPerDay;
+
+    if (grp === 'zeleninaOvoce') {
+      if (explicitSub) {
+        // Legacy explicit tag (pre-310/2025 data) — trust it directly.
+        if (explicitSub === 'ovoce') subSplit.ovoce += gramsPerDay;
+        else subSplit.zelenina += gramsPerDay;
+      } else {
+        const nameLower = item.name.toLowerCase();
+        const isExactOvoce = nameLower === 'ovoce';
+        const isExactZelenina = nameLower === 'zelenina';
+        const isOvoce = !isExactZelenina && (isExactOvoce || ovoceKeywords.some(kw => nameLower.includes(kw)));
+        const isZelenina = !isExactOvoce && (isExactZelenina || zeleninaKeywords.some(kw => nameLower.includes(kw)));
+        if (isOvoce && !isZelenina) {
+          subSplit.ovoce += gramsPerDay;
+        } else if (isZelenina && !isOvoce) {
+          subSplit.zelenina += gramsPerDay;
+        } else {
+          // Still ambiguous (e.g. a generic combined label, or a name
+          // matching both lists) — fall back to your configured ratio
+          // rather than an arbitrary 50/50.
+          const r = getZeleninaSplitRatio() / 100;
+          subSplit.zelenina += gramsPerDay * r;
+          subSplit.ovoce += gramsPerDay * (1 - r);
+        }
+      }
+    }
   }
 
   // Render compliance bars
   // Track represents 0–150 % of the norm target.
   // bar fill width and marker positions are all scaled to that range.
   const SCALE = 150; // track = 150 % of norm
-  const rows = Object.entries(N.foodGroups).map(([key, group]) => {
-    const actual = actualGrams[key] || 0;
-    const result = N.checkCompliance(actual, key, ageKey);
+  const mode = getComplianceViewMode();
+
+  const renderBarRow = (group, result, label) => {
     const barWidth = Math.min(100, (result.pct / SCALE) * 100); // capped at 100% of track
     const minMark = (group.min * 100 / SCALE) * 100;
     const maxMark = group.max !== null ? (group.max * 100 / SCALE) * 100 : null;
-
     const maxMarker = maxMark !== null
       ? `<div class="comp-bar-max" style="left:${maxMark}%" title="Max ${Math.round(group.max*100)}%"></div>`
       : '';
+    return `
+      <div class="comp-row-header">
+        <span class="norm-dot" style="background:${group.color}"></span>
+        <span class="comp-label">${escHtml(label)}</span>
+        <span class="comp-pct ${result.status}">${result.pct} %</span>
+      </div>
+      <div class="comp-bar-track">
+        <div class="comp-bar-fill ${result.status}" style="width:${barWidth}%"></div>
+        <div class="comp-bar-min" style="left:${minMark}%" title="Min ${Math.round(group.min*100)}%"></div>
+        ${maxMarker}
+      </div>`;
+  };
+
+  let groupEntries = Object.entries(N.foodGroups);
+  if (mode === 'custom') {
+    // Custom view: hide Celozrnné obiloviny a pseudoobiloviny, split Zelenina/Ovoce into two rows.
+    groupEntries = groupEntries.filter(([key]) => key !== 'celozrnne');
+  }
+
+  const rows = groupEntries.map(([key, group]) => {
+    const actual = actualGrams[key] || 0;
+    const result = N.checkCompliance(actual, key, ageKey);
+
+    if (mode === 'custom' && key === 'zeleninaOvoce') {
+      // Two visual rows (Zelenina / Ovoce), both driven by the SAME combined
+      // result (target/%/status) — per Vyhláška 310/2025 there is only one
+      // official combined target, so the compliance % must stay identical
+      // on both rows. Only the displayed "actual" amount differs, split by
+      // item name for your own internal tracking.
+      const ovoceGroup = { ...group, label: 'Ovoce', color: '#C0CA33' };
+      const zeleninaGroup = { ...group, label: 'Zelenina', color: '#43A047' };
+      const sharedNote = `<div class="comp-shared-note">Společný cíl dle vyhlášky 310/2025 (Zelenina + Ovoce dohromady) — % je sdílené mezi oběma řádky.</div>`;
+      return `
+      <div class="comp-row comp-row-linked" style="color:${zeleninaGroup.color}">
+        ${renderBarRow(zeleninaGroup, result, zeleninaGroup.label)}
+        <div class="comp-detail">Skutečnost (zelenina): ${subSplit.zelenina.toFixed(1)} g/den</div>
+        ${sharedNote}
+      </div>
+      <div class="comp-row comp-row-linked" style="color:${ovoceGroup.color}">
+        ${renderBarRow(ovoceGroup, result, ovoceGroup.label)}
+        <div class="comp-detail">Skutečnost (ovoce): ${subSplit.ovoce.toFixed(1)} g/den</div>
+        <div class="comp-detail">Cíl (společný): ${result.target.toFixed(1)} g/den · Min: ${(result.target * group.min).toFixed(1)} g/den · Max: ${group.max !== null ? (result.target * group.max).toFixed(1) + ' g/den' : '—'} · ${result.status === 'ok' ? '✅ V normě' : result.status === 'low' ? '❌ Pod normou' : '⚠️ Nad normou'}</div>
+      </div>`;
+    }
 
     return `
       <div class="comp-row">
-        <div class="comp-row-header">
-          <span class="norm-dot" style="background:${group.color}"></span>
-          <span class="comp-label">${escHtml(group.label)}</span>
-          <span class="comp-pct ${result.status}">${result.pct} %</span>
-        </div>
-        <div class="comp-bar-track">
-          <div class="comp-bar-fill ${result.status}" style="width:${barWidth}%"></div>
-          <div class="comp-bar-min" style="left:${minMark}%" title="Min ${Math.round(group.min*100)}%"></div>
-          ${maxMarker}
-        </div>
+        ${renderBarRow(group, result, group.label)}
         <div class="comp-detail">
           Cíl: ${result.target.toFixed(1)} g/den · Skutečnost: ${result.actual.toFixed(1)} g/den ·
           Min: ${(result.target * group.min).toFixed(1)} g/den · Max: ${group.max !== null ? (result.target * group.max).toFixed(1) + ' g/den' : '—'} ·
@@ -2141,4 +2291,13 @@ function initNorms() {
   renderNormReference();
   renderFreqRules();
   document.getElementById('btnCheckCompliance')?.addEventListener('click', checkCompliance);
+  document.querySelectorAll('#compViewToggle .cvt-btn').forEach(btn => {
+    btn.addEventListener('click', () => setComplianceViewMode(btn.dataset.mode));
+  });
+  document.getElementById('zeleninaRatioInput')?.addEventListener('change', (e) => {
+    setZeleninaSplitRatio(e.target.value);
+    renderComplianceViewToggle();
+    checkCompliance();
+  });
+  renderComplianceViewToggle();
 }

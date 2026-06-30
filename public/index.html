@@ -608,7 +608,19 @@
     </div>
 
     <!-- Monthly compliance check -->
-    <div class="section-title mt-2"><h3>Měsíční plnění spotřebního koše</h3></div>
+    <div class="section-title mt-2 comp-title-row">
+      <h3>Měsíční plnění spotřebního koše</h3>
+      <div class="comp-view-toggle" id="compViewToggle">
+        <button class="cvt-btn" data-mode="official">📜 Nejnovější pravidla</button>
+        <button class="cvt-btn" data-mode="custom">🎛️ Vlastní zobrazení</button>
+      </div>
+    </div>
+    <p class="muted comp-view-hint" id="compViewHint"></p>
+    <div class="comp-ratio-row" id="compRatioRow" style="display:none">
+      <label for="zeleninaRatioInput">Poměr zelenina : ovoce (váš odhad, vyhláška nestanoví)</label>
+      <input type="number" id="zeleninaRatioInput" min="0" max="100" step="5" />
+      <span>% zelenina</span>
+    </div>
     <div id="complianceResult">
       <div class="empty-state">
         <span class="empty-icon">⚖️</span>

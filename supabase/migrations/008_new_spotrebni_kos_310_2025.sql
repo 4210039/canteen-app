@@ -16,8 +16,12 @@ SET food_group = 'mlecneVyrobky',
 WHERE food_group = 'mleko';
 
 -- ── 2. Merge zelenina + ovoce → zeleninaOvoce ─────────────────────────────
--- Retag all ledger entries tagged 'zelenina' or 'ovoce'
-UPDATE ledger_entries SET food_group = 'zeleninaOvoce' WHERE food_group IN ('zelenina','ovoce');
+-- Retag all ledger entries tagged 'zelenina' or 'ovoce'.
+-- NOTE: this previously targeted a non-existent table 'ledger_entries'
+-- (typo — the real table is 'inventory_ledger', see 001_initial_schema.sql),
+-- so this UPDATE silently affected 0 rows and old 'zelenina'/'ovoce'-tagged
+-- entries were never migrated. Fixed to target the correct table.
+UPDATE inventory_ledger SET food_group = 'zeleninaOvoce' WHERE food_group IN ('zelenina','ovoce');
 
 -- Update norms_config: rename zelenina row, remove ovoce row
 UPDATE norms_config
@@ -49,4 +53,4 @@ UPDATE norms_config SET tolerance_max = NULL WHERE food_group = 'lustaniny';
 -- Mléčné výrobky: keep 75-125%
 
 -- ── 5. Retag old mleko ledger entries ─────────────────────────────────────
-UPDATE ledger_entries SET food_group = 'mlecneVyrobky' WHERE food_group = 'mleko';
+UPDATE inventory_ledger SET food_group = 'mlecneVyrobky' WHERE food_group = 'mleko';
