@@ -427,12 +427,27 @@ input, select { font: inherit; }
   background: var(--white); border: 1px solid var(--border); border-radius: 8px;
   padding: .6rem .9rem; font-size: .85rem;
 }
+.freq-rule-live { border-left: 3px solid var(--green); }
 .freq-rule .fr-icon { font-size: 1.1rem; }
 .freq-rule .fr-label { flex: 1; }
-.freq-rule .fr-badge {
-  font-size: .75rem; font-weight: 600; padding: .2rem .5rem; border-radius: 4px;
-  background: var(--green-pale); color: var(--green);
+.freq-rule .fr-live-dot { color: var(--green); font-size: .6rem; vertical-align: middle; margin-left: .25rem; cursor: help; }
+.fr-src-badge {
+  display: inline-block; font-size: .68rem; font-weight: 500;
+  background: var(--surface); color: var(--ink-light);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 0 .3rem; margin-left: .4rem; vertical-align: middle;
 }
+.freq-rule .fr-badge {
+  font-size: .75rem; font-weight: 600; padding: .2rem .55rem; border-radius: 4px;
+  white-space: nowrap;
+}
+/* Badge variants */
+.fr-badge.badge-ok      { background: var(--green-pale); color: var(--green); }
+.fr-badge.badge-fail    { background: #fdecea; color: #c62828; }
+.fr-badge.badge-missing { background: #fff8e1; color: #f57f17; }
+.fr-badge.badge-ban     { background: #fdecea; color: #c62828; }
+.fr-badge.badge-info    { background: var(--green-pale); color: var(--green); }
+.fr-badge.badge-future  { background: var(--surface); color: var(--ink-light); }
 
 /* ── Ledger / Stock balance ───────────────────────────────── */
 .stat-card.stock { border-color: var(--blue); background: var(--blue-pale); }

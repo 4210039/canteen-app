@@ -308,6 +308,72 @@ const CZ_MONTHS = {
 
 let _rosterParsed = null; // { year, month, className, days: [{day, date, weekKey, dayIndex, presnidavka, obed, svacina}], dpCount, blankWeekdayCount, totalChildren }
 
+async function showImportedAttendanceWeek(weekKey) {
+  const targetWeek = String(weekKey || '').trim();
+  if (!targetWeek) return;
+
+  // Preferred path: app.js owns the attendance dropdown/grid and exposes a
+  // dedicated import handoff. This updates the year dropdown, rebuilds the
+  // week dropdown when needed, selects the imported week, fetches that week
+  // back from Supabase, renders the grid, and opens the Docházka tab.
+  try {
+    if (typeof window.focusAttendanceWeekFromImport === 'function') {
+      await window.focusAttendanceWeekFromImport(targetWeek);
+      return;
+    }
+  } catch (err) {
+    console.warn('Imported attendance was saved, but automatic week selection failed:', err);
+  }
+
+  // Defensive fallback in case app.js is loaded in an older version.
+  try {
+    if (typeof switchTab === 'function') switchTab('attendance');
+    const targetYear = parseInt(targetWeek.split('-W')[0], 10);
+    const yearSelect = document.getElementById('attYearPicker');
+    const weekSelect = document.getElementById('attWeekPicker');
+
+    if (typeof populateAttYearSelect === 'function' && !isNaN(targetYear)) {
+      populateAttYearSelect(targetYear);
+    } else if (yearSelect && !isNaN(targetYear)) {
+      yearSelect.value = String(targetYear);
+    }
+
+    if (typeof populateAttWeekSelect === 'function' && !isNaN(targetYear)) {
+      populateAttWeekSelect(targetYear, targetWeek);
+    } else if (weekSelect) {
+      weekSelect.value = targetWeek;
+    }
+    if (weekSelect) weekSelect.value = targetWeek;
+
+    if (typeof loadAttendanceWeekFromCloud === 'function') {
+      await loadAttendanceWeekFromCloud(targetWeek);
+    }
+    if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
+    document.getElementById('attendanceGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    console.warn('Imported attendance was saved, but attendance grid refresh failed:', err);
+  }
+}
+
+function firstWeekWithAttendance(rows, getWeek, getCounts) {
+  const weeks = new Set();
+  const weeksWithCounts = new Set();
+
+  rows.forEach(row => {
+    const week = getWeek(row);
+    if (!week) return;
+    weeks.add(week);
+
+    const counts = (getCounts(row) || [])
+      .map(v => parseInt(v, 10))
+      .filter(v => !isNaN(v));
+    if (counts.some(v => v > 0)) weeksWithCounts.add(week);
+  });
+
+  const candidates = weeksWithCounts.size ? weeksWithCounts : weeks;
+  return [...candidates].sort()[0] || '';
+}
+
 async function parseRosterFile(file, info) {
   const buf = await file.arrayBuffer();
   const wb  = XLSX.read(buf, { type: 'array' });
@@ -942,10 +1008,21 @@ async function doRosterImport() {
     // what's actually now in the database.
     const weeks = [...new Set(r.days.map(d => d.weekKey))];
     await Promise.all(weeks.map(w => loadAttendanceWeekFromCloud(w)));
-    if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
 
+    // Close the modal FIRST so its overlay is out of the way before we
+    // switch tabs and set the week — otherwise the modal teardown races
+    // with the tab/dropdown update and the grid never becomes visible.
     closeImport();
     toast(`Docházka importována: ${r.days.length} dnů (${MONTH_NAMES_CZ[r.month]} ${r.year}).`, 'success');
+
+    // Let the DOM finish painting (modal hidden, toast shown) before we
+    // manipulate the attendance tab and dropdowns.
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    await showImportedAttendanceWeek(firstWeekWithAttendance(
+      r.days,
+      d => d.weekKey,
+      d => [d.presnidavka, d.obed, d.svacina]
+    ));
   } catch (err) {
     btn.disabled = false;
     toast('Import se nepodařilo uložit do databáze: ' + err.message, 'error');
@@ -1111,13 +1188,20 @@ async function doCsvImport() {
   function val(row, key) { return colMap[key] !== undefined ? String(row[colMap[key]] || '').trim() : ''; }
 
   let imported = 0;
+  let attendanceFirstWeek = null; // set only for attendance CSV imports
   const errors = [];
 
   try {
     switch (_importSection) {
-      case 'attendance':
-        imported = await importAttendance(data, val, errors);
+      case 'attendance': {
+        // importAttendance returns {count, firstWeek} so WE can close the
+        // modal before navigating — if it navigated internally the overlay
+        // would still be open and fight the tab/dropdown switch.
+        const result = await importAttendance(data, val, errors);
+        imported = result.count;
+        attendanceFirstWeek = result.firstWeek;
         break;
+      }
 
       case 'offers':
         imported = importOffers(data, val, errors);
@@ -1146,14 +1230,23 @@ async function doCsvImport() {
   if (errors.length) {
     // Partial success — keep the modal open too, so the error panel
     // (already rendered above) stays visible instead of vanishing with
-    // the rest of the modal. The user closes it manually once reviewed.
+    // the rest of the modal. The user closes it manually once revealed.
     toast(`Import: ${imported} přijato, ${errors.length} chyb. Podrobnosti níže.`, 'warning');
     console.warn('Import errors:', errors);
     return;
   }
 
+  // Close the modal overlay BEFORE switching tabs/dropdowns so the
+  // modal teardown doesn't race with the attendance grid becoming visible.
   closeImport();
   toast(`Importováno ${imported} záznamů!`, 'success');
+
+  if (attendanceFirstWeek) {
+    // Let the DOM finish painting (modal hidden, toast visible) before
+    // manipulating the attendance tab and week dropdowns.
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    await showImportedAttendanceWeek(attendanceFirstWeek);
+  }
 }
 
 // ── Section-specific importers ────────────────────────────
@@ -1216,11 +1309,19 @@ async function importAttendance(data, val, errors) {
     // Write to Supabase FIRST — attendanceData/the grid only update once
     // this succeeds, so a failed import never shows data that isn't saved.
     await dbPut('/api/db/attendance/bulk', { rows: bulkRows });
-    await Promise.all([...affectedWeeks].map(w => loadAttendanceWeekFromCloud(w)));
-    if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
+    const weeks = [...affectedWeeks];
+    await Promise.all(weeks.map(w => loadAttendanceWeekFromCloud(w)));
+    // Return the target week so the caller (doCsvImport) can close the
+    // modal overlay FIRST and then navigate — if we navigate here the
+    // modal is still open and fights the tab/dropdown switch.
+    return { count, firstWeek: firstWeekWithAttendance(
+      bulkRows,
+      row => row.week_key,
+      row => [row.child_count]
+    ) };
   }
 
-  return count;
+  return { count, firstWeek: null };
 }
 
 function importOffers(data, val, errors) {

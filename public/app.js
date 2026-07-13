@@ -63,6 +63,8 @@ async function loadLedgerFromCloud() {
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Sklad: HTTP ${res.status}`);
   const rows = await res.json();
   STATE.ledger = rows.map(ledgerRowFromDb);
+  // Re-render live-checked rules (ryby/luštěniny frequency) now that ledger is fresh
+  renderFreqRules();
 }
 
 // Fetch the most recent saved menu for the current org from Supabase
@@ -215,6 +217,7 @@ async function fetchMenu() {
 
     renderMenu();
     renderIngredients();
+    renderFreqRules();
     setStatus('ok', 'Jídelníček načten');
     toast('Jídelníček úspěšně načten!', 'success');
 
@@ -1036,6 +1039,7 @@ function escHtml(str) {
 function renderAll() {
   renderMenu();
   renderIngredients();
+  renderFreqRules();
   renderOffers();
   renderWarehouse();
   renderStockBalance();
@@ -1600,6 +1604,7 @@ async function useSavedMenuAsCurrent(weekKey) {
 
     renderMenu();
     renderIngredients();
+    renderFreqRules();
     setStatus('ok', 'Jídelníček načten z archivu');
 
     const lastCheck = document.getElementById('lastCheck');
@@ -1716,11 +1721,13 @@ function isoWeeksInYear(year) {
 function populateAttYearSelect(selectedYear) {
   const select = document.getElementById('attYearPicker');
   if (!select) return;
-  const endYear = new Date().getFullYear() + 10;
+  const requestedYear = parseInt(selectedYear, 10) || new Date().getFullYear();
+  const startYear = Math.min(2020, requestedYear);
+  const endYear = Math.max(new Date().getFullYear() + 10, requestedYear);
   const years = [];
-  for (let y = 2020; y <= endYear; y++) years.push(y);
+  for (let y = startYear; y <= endYear; y++) years.push(y);
   select.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
-  select.value = String(selectedYear || new Date().getFullYear());
+  select.value = String(requestedYear);
 }
 
 // Populates the week dropdown with every ISO week belonging to the given
@@ -1758,20 +1765,34 @@ function populateAttWeekSelect(year, selectedWeek) {
 // belongs to a different year than what's currently shown (year switch,
 // or something jumping to a week outside the current year programmatically).
 async function setAttWeek(weekStr) {
+  const normalizedWeek = String(weekStr || '').trim();
+  if (!/^\d{4}-W\d{2}$/.test(normalizedWeek)) return;
+
   const yearSelect = document.getElementById('attYearPicker');
   const weekSelect = document.getElementById('attWeekPicker');
-  const targetYear = parseInt(weekStr.split('-W')[0], 10);
+  const targetYear = parseInt(normalizedWeek.split('-W')[0], 10);
 
+  if (yearSelect && !Array.from(yearSelect.options).some(opt => opt.value === String(targetYear))) {
+    populateAttYearSelect(targetYear);
+  }
   if (yearSelect && parseInt(yearSelect.value, 10) !== targetYear) {
     yearSelect.value = String(targetYear);
   }
-  if (weekSelect && weekSelect.value !== weekStr) {
-    populateAttWeekSelect(targetYear, weekStr);
+  if (weekSelect) {
+    const hasTargetOption = Array.from(weekSelect.options).some(opt => opt.value === normalizedWeek);
+    if (!hasTargetOption || weekSelect.value !== normalizedWeek) {
+      populateAttWeekSelect(targetYear, normalizedWeek);
+    }
+    // Explicitly assign the value even after rebuilding the dropdown. This
+    // is the critical import handoff: after a file import, the UI must land
+    // on the first week that actually contains imported attendance, not stay
+    // on today's week and force the user to search in the dropdown.
+    weekSelect.value = normalizedWeek;
   }
 
   setStatus('busy', 'Načítám docházku…');
   try {
-    await loadAttendanceWeekFromCloud(weekStr);
+    await loadAttendanceWeekFromCloud(normalizedWeek);
     setStatus('ok', 'Připraveno');
   } catch (err) {
     setStatus('error', 'Chyba načítání');
@@ -1779,6 +1800,31 @@ async function setAttWeek(weekStr) {
   }
   renderAttendanceGrid();
 }
+
+async function focusAttendanceWeekFromImport(weekStr) {
+  const normalizedWeek = String(weekStr || '').trim();
+  if (!/^\d{4}-W\d{2}$/.test(normalizedWeek)) return;
+
+  // Switch the tab first so the attendance panel is visible, then yield a
+  // frame — this lets the browser paint the newly-active panel before we
+  // touch the dropdowns and grid inside it. Without the yield, the year/week
+  // selects may be in a hidden panel when we try to set their values, which
+  // causes the assignment to silently no-op in some browsers.
+  if (typeof switchTab === 'function') switchTab('attendance');
+  await new Promise(resolve => requestAnimationFrame(resolve));
+
+  await setAttWeek(normalizedWeek);
+  document.getElementById('attendanceGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Explicit exports for import.js. Browser globals from function declarations
+// are easy to break accidentally if this file is ever converted to a module;
+// assigning them here makes the attendance-import handoff intentional.
+window.setAttWeek = setAttWeek;
+window.populateAttYearSelect = populateAttYearSelect;
+window.populateAttWeekSelect = populateAttWeekSelect;
+window.renderAttendanceGrid = renderAttendanceGrid;
+window.focusAttendanceWeekFromImport = focusAttendanceWeekFromImport;
 
 function getISOWeekString(d = new Date()) {
   const date = new Date(d);
@@ -2187,29 +2233,247 @@ function renderNormReference() {
   }).join('');
 }
 
+/**
+ * Count how many distinct calendar weeks in the current month have at least
+ * one ledger entry (type 'in' OR 'out') for a given foodGroup key.
+ * "Current month" = last 30 days (same window as checkCompliance).
+ */
+function countWeeksWithGroup(groupKey) {
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  const weeks = new Set();
+  for (const e of STATE.ledger) {
+    const c = classifyLedgerItem(e);
+    if (!c || c.groupKey !== groupKey) continue;
+    const d = new Date(e.date);
+    if (d < since) continue;
+    // ISO week key: YYYY-Www
+    const jan4 = new Date(d.getFullYear(), 0, 4);
+    const weekNum = Math.ceil(((d - jan4) / 86400000 + jan4.getDay() + 1) / 7);
+    weeks.add(`${d.getFullYear()}-W${weekNum}`);
+  }
+  return weeks.size;
+}
+
+// ══════════════════════════════════════════════════════════
+// Menu-text rule checking (keyword-based, no AI required)
+// Operates on STATE.currentMenu.days[].meals[].dish strings.
+// ══════════════════════════════════════════════════════════
+
+const SLADKE_NAPOJE_KEYWORDS = [
+  'sirup', 'limonáda', 'džus', 'mošt', 'kofola', 'coca-cola', 'fanta', 'sprite',
+  'slazený čaj', 'slazený nápoj', 'energetický nápoj', 'ice tea', 'icetea',
+];
+// Note: "med" and "ovocný džus" are borderline — we flag "mošt" and "sirup"
+// which appear commonly in kindergarten menus and are unambiguously sugary.
+
+const JEMNE_PECIVO_KEYWORDS = [
+  'koláč', 'buchta', 'bábovka', 'croissant', 'muffin', 'závin', 'štrůdl',
+  'perník', 'sušenka', 'piškot', 'dort', 'dortíček', 'zákusek', 'zákusků',
+  'tvarohový košíček', 'věneček', 'větrník', 'linecké', 'čokoládový rohlík',
+  'kakaový rohlík', 'šneček', 'šneci',
+];
+
+const PALMOVY_TUK_KEYWORDS = [
+  'palmový olej', 'palmový tuk', 'palmojádrový', 'kokosový tuk', 'kokosový olej',
+];
+
+const BUJONY_KEYWORDS = [
+  'bujón', 'bujon', 'vývar z kostiček', 'maggi', 'dehydratovaný vývar',
+  'instantní vývar', 'masox',
+];
+
+/**
+ * Check all loaded menu days for a specific keyword list.
+ * Returns { hits: [{dayName, mealLabel, dish}], checkedMeals: number }
+ */
+function scanMenuForKeywords(keywords, mealFilter = null) {
+  const days = STATE.currentMenu?.days || [];
+  const hits = [];
+  let checkedMeals = 0;
+  for (const day of days) {
+    for (const meal of (day.meals || [])) {
+      if (mealFilter && !mealFilter(meal.label)) continue;
+      checkedMeals++;
+      const dish = (meal.dish || '').toLowerCase();
+      if (keywords.some(kw => dish.includes(kw.toLowerCase()))) {
+        hits.push({ dayName: day.name, mealLabel: meal.label, dish: meal.dish });
+      }
+    }
+  }
+  return { hits, checkedMeals };
+}
+
+/**
+ * Check whether every meal in the loaded menu contains zelenina or ovoce.
+ * Returns { mealsWithout: [{dayName, mealLabel, dish}], checkedMeals }
+ */
+function checkZeleninaOvoceEveryMeal() {
+  const days = STATE.currentMenu?.days || [];
+  const mealsWithout = [];
+  let checkedMeals = 0;
+  for (const day of days) {
+    for (const meal of (day.meals || [])) {
+      checkedMeals++;
+      const dish = (meal.dish || '').toLowerCase();
+      const hasZelenina = ZELENINA_KEYWORDS.some(kw => dish.includes(kw));
+      const hasOvoce    = OVOCE_KEYWORDS.some(kw => dish.includes(kw));
+      if (!hasZelenina && !hasOvoce) {
+        mealsWithout.push({ dayName: day.name, mealLabel: meal.label, dish: meal.dish });
+      }
+    }
+  }
+  return { mealsWithout, checkedMeals };
+}
+
+/**
+ * Count distinct calendar months in which jemné pečivo appears
+ * ≥N times at oběd, and total occurrences at přesnídávka/svačina.
+ * 310/2025: max 1× měsíčně k obědu, max 2× měsíčně k přesnídávce/svačině.
+ */
+function checkJemnePecivo() {
+  const days = STATE.currentMenu?.days || [];
+  let obedHits = 0, snackHits = 0;
+  for (const day of days) {
+    for (const meal of (day.meals || [])) {
+      const dish = (meal.dish || '').toLowerCase();
+      const isJemne = JEMNE_PECIVO_KEYWORDS.some(kw => dish.includes(kw));
+      if (!isJemne) continue;
+      const label = (meal.label || '').toLowerCase();
+      if (label.includes('oběd')) obedHits++;
+      else snackHits++; // přesnídávka + svačina
+    }
+  }
+  // The loaded menu is typically 1 week; scale to monthly estimate
+  const days30 = STATE.currentMenu?.days?.length || 5;
+  const scaleFactor = 20 / Math.max(days30, 1); // ~20 working days/month
+  const obedMonth  = Math.round(obedHits  * scaleFactor);
+  const snackMonth = Math.round(snackHits * scaleFactor);
+  return {
+    obedHits, snackHits, obedMonth, snackMonth,
+    obedOk:  obedMonth  <= 1,
+    snackOk: snackMonth <= 2,
+  };
+}
+
 function renderFreqRules() {
+  // ── Ledger-based live checks ────────────────────────────────────────────
+  const rybyWeeks      = countWeeksWithGroup('ryby');
+  const lustaninyWeeks = countWeeksWithGroup('lustaniny');
+  const rybyOk         = rybyWeeks >= 2;
+  const lustaninyOk    = lustaninyWeeks >= 4;
+
+  const ledgerStatus = (ok, actual, min, unit) => {
+    if (actual === 0) return { badge: `0 / ${min} ${unit}`, cls: 'badge-missing', tip: 'Žádný záznam v posledních 30 dnech' };
+    if (ok)           return { badge: `✅ ${actual} / ${min} ${unit}`, cls: 'badge-ok',   tip: 'Plněno dle Vyhl. 310/2025' };
+    return            { badge: `❌ ${actual} / ${min} ${unit}`, cls: 'badge-fail', tip: 'Nesplněno dle Vyhl. 310/2025' };
+  };
+
+  // ── Menu-text live checks ───────────────────────────────────────────────
+  const hasMenu = !!(STATE.currentMenu?.days?.length);
+
+  // 🥦 Zelenina nebo ovoce u každého jídla
+  let zeleninaStatus;
+  if (!hasMenu) {
+    zeleninaStatus = { badge: 'Načtěte jídelníček', cls: 'badge-missing', tip: 'Vyžaduje načtený jídelníček' };
+  } else {
+    const { mealsWithout, checkedMeals } = checkZeleninaOvoceEveryMeal();
+    if (mealsWithout.length === 0) {
+      zeleninaStatus = {
+        badge: `✅ ${checkedMeals} / ${checkedMeals} jídel`,
+        cls: 'badge-ok',
+        tip: `Všechna jídla v jídelníčku obsahují zeleninu nebo ovoce`,
+      };
+    } else {
+      const names = mealsWithout.map(m => `${m.dayName} ${m.mealLabel}`).join(', ');
+      zeleninaStatus = {
+        badge: `❌ ${mealsWithout.length} jídel bez zeleniny/ovoce`,
+        cls: 'badge-fail',
+        tip: `Chybí: ${names}`,
+      };
+    }
+  }
+
+  // 🚫 Sladké nápoje
+  let sladkeStatus;
+  if (!hasMenu) {
+    sladkeStatus = { badge: 'Načtěte jídelníček', cls: 'badge-missing', tip: 'Vyžaduje načtený jídelníček' };
+  } else {
+    const { hits, checkedMeals } = scanMenuForKeywords(SLADKE_NAPOJE_KEYWORDS);
+    if (hits.length === 0) {
+      sladkeStatus = {
+        badge: `✅ Nenalezeno (${checkedMeals} jídel)`,
+        cls: 'badge-ok',
+        tip: 'Žádné sladké nápoje nenalezeny v jídelníčku',
+      };
+    } else {
+      const names = hits.map(h => `${h.dayName} ${h.mealLabel}: ${h.dish}`).join(' | ');
+      sladkeStatus = {
+        badge: `❌ ${hits.length}× nalezeno`,
+        cls: 'badge-fail',
+        tip: names,
+      };
+    }
+  }
+
+  // 🍞 Jemné pečivo
+  let pecivStatus;
+  if (!hasMenu) {
+    pecivStatus = { badge: 'Načtěte jídelníček', cls: 'badge-missing', tip: 'Vyžaduje načtený jídelníček' };
+  } else {
+    const jp = checkJemnePecivo();
+    const days = STATE.currentMenu.days.length;
+    if (jp.obedHits === 0 && jp.snackHits === 0) {
+      pecivStatus = {
+        badge: `✅ Nenalezeno`,
+        cls: 'badge-ok',
+        tip: `Žádné jemné pečivo nenalezeno v ${days} dnech jídelníčku`,
+      };
+    } else {
+      const parts = [];
+      if (jp.obedHits  > 0) parts.push(`oběd: ${jp.obedHits}× (limit 1×/měs.)`);
+      if (jp.snackHits > 0) parts.push(`přesnídávka/svačina: ${jp.snackHits}× (limit 2×/měs.)`);
+      const ok = jp.obedOk && jp.snackOk;
+      pecivStatus = {
+        badge: ok ? `✅ ${jp.obedHits + jp.snackHits}× (v normě)` : `❌ ${jp.obedHits + jp.snackHits}× (překročeno)`,
+        cls: ok ? 'badge-ok' : 'badge-fail',
+        tip: `${parts.join(', ')} — měsíční odhad z ${days} dní jídelníčku`,
+      };
+    }
+  }
+
+  // ── Build rule list ─────────────────────────────────────────────────────
   const rules = [
-    { icon: '🐟', label: 'Ryby, korýši, měkkýši min. 2× měsíčně', badge: '2×/měsíc' },
-    { icon: '🫘', label: 'Luštěniny min. 4× měsíčně (1× týdně)', badge: '4×/měsíc' },
-    { icon: '🥦', label: 'Zelenina nebo ovoce součástí každého jídla', badge: 'Každé jídlo' },
-    { icon: '🌾', label: 'Celozrnné obiloviny/pseudoobiloviny – sledujte plnění (min. 75 %)', badge: 'Min 75 %' },
-    { icon: '🚫', label: 'Zakázáno: sladké nápoje (džus, limonáda, sirup, slazený čaj)', badge: 'Zakázáno' },
-    { icon: '🚫', label: 'Zakázáno: palmový, palmojádrový a kokosový volný tuk', badge: 'Zakázáno' },
-    { icon: '🚫', label: 'Zakázáno: dehydratované směsi a bujóny s >1 g soli/100 g', badge: 'Zakázáno' },
-    { icon: '🚫', label: 'Jemné pečivo: max. 1× měsíčně k obědu, max. 2× k přesnídávce/svačině', badge: 'Max 2×/měs.' },
-    { icon: '⚗️',  label: 'Poměr rostlinných a živočišných tuků min. 2:1 ve prospěch rostlinných', badge: '2:1 rostl.' },
-    { icon: '📊', label: 'Tolerance: Maso 75–125 %, Tuky/Cukry max. 100 %, Ryby/Zelenina min. 75 % (bez max.)', badge: 'Viz tabulka' },
-    { icon: '🌱', label: 'BIO potraviny: min. 2 % hmotnosti (jídelny s >180 strávníky od 1. 9. 2028)', badge: 'Od 9/2028' },
+    // Ledger-based
+    { icon: '🐟', label: 'Ryby, korýši, měkkýši min. 2× měsíčně',   ...ledgerStatus(rybyOk,      rybyWeeks,      2, 'týdny'), live: true, src: 'ledger' },
+    { icon: '🫘', label: 'Luštěniny min. 4× měsíčně (1× týdně)',     ...ledgerStatus(lustaninyOk, lustaninyWeeks, 4, 'týdny'), live: true, src: 'ledger' },
+    // Menu-text based
+    { icon: '🥦', label: 'Zelenina nebo ovoce součástí každého jídla',         ...zeleninaStatus, live: true, src: 'menu' },
+    { icon: '🚫', label: 'Zakázáno: sladké nápoje (džus, limonáda, sirup…)',   ...sladkeStatus,   live: true, src: 'menu' },
+    { icon: '🍞', label: 'Jemné pečivo: max. 1× oběd / 2× přesnídávka+svačina měsíčně', ...pecivStatus, live: true, src: 'menu' },
+    // Cannot be auto-checked
+    { icon: '🚫', label: 'Zakázáno: palmový, palmojádrový a kokosový volný tuk — nelze ověřit z jídelníčku (nutná kontrola etiket)', badge: '⚠️ Ruční kontrola', cls: 'badge-missing' },
+    { icon: '🚫', label: 'Zakázáno: dehydratované směsi a bujóny s >1 g soli/100 g — nelze ověřit z jídelníčku (nutná kontrola etiket)', badge: '⚠️ Ruční kontrola', cls: 'badge-missing' },
+    // Reference / informational
+    { icon: '🌾', label: 'Celozrnné obiloviny/pseudoobiloviny (min. 75 %) — viz plnění výše',                           badge: 'Viz výše',   cls: 'badge-info' },
+    { icon: '⚗️', label: 'Poměr rostlinných a živočišných tuků min. 2:1 ve prospěch rostlinných',                       badge: '⚠️ Ruční kontrola', cls: 'badge-missing' },
+    { icon: '📊', label: 'Tolerance: Maso 75–125 %, Tuky/Cukry max. 100 %, Ryby/Zelenina min. 75 % (bez max.)',         badge: 'Viz výše',   cls: 'badge-info' },
+    { icon: '🌱', label: 'BIO potraviny: min. 2 % hmotnosti (jídelny s >180 strávníky od 1. 9. 2028)',                  badge: 'Od 9/2028',  cls: 'badge-future' },
   ];
 
   const container = document.getElementById('freqRules');
   if (!container) return;
-  container.innerHTML = rules.map(r => `
-    <div class="freq-rule">
+
+  container.innerHTML = rules.map(r => {
+    const srcLabel = r.src === 'ledger' ? '📦 sklad' : r.src === 'menu' ? '📋 jídelníček' : '';
+    const srcBadge = r.live ? `<span class="fr-src-badge">${srcLabel}</span>` : '';
+    return `
+    <div class="freq-rule ${r.live ? 'freq-rule-live' : ''}" ${r.tip ? `title="${escHtml(r.tip)}"` : ''}>
       <span class="fr-icon">${r.icon}</span>
-      <span class="fr-label">${escHtml(r.label)}</span>
-      <span class="fr-badge">${escHtml(r.badge)}</span>
-    </div>`).join('');
+      <span class="fr-label">${escHtml(r.label)}${srcBadge}</span>
+      <span class="fr-badge ${r.cls}">${escHtml(r.badge)}</span>
+    </div>`;
+  }).join('');
 }
 
 function getComplianceViewMode() {
