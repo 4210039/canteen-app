@@ -340,6 +340,8 @@ const STORES = [
   { id: 'kaufland', name: 'Kaufland – leták', search: 'https://www.kupi.cz/letaky/kaufland', type: 'browse' },
   { id: 'albert',   name: 'Albert – leták',   search: 'https://www.kupi.cz/letaky/albert',   type: 'browse' },
   { id: 'globus',   name: 'Globus – leták',   search: 'https://www.kupi.cz/letaky/globus',   type: 'browse' },
+  { id: 'billa',    name: 'Billa – leták',    search: 'https://www.kupi.cz/letaky/billa',    type: 'browse' },
+  { id: 'tesco',    name: 'Tesco – leták',    search: 'https://www.kupi.cz/letaky/tesco',    type: 'browse' },
 ];
 
 function storeSearchUrl(storeId, query) {
