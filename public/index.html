@@ -23,13 +23,13 @@
     window.pdfjsLib = pdfjsLib;
   </script>
 </head>
-<body>
+<body class="app-loading">
 
   <!-- ── Login overlay ── -->
   <!-- Always used as the gate before the app shows. If the database isn't
        configured at all, the login/signup forms stay hidden and
        #dbNotConfiguredError is shown instead — see initAuthFlow() in app.js. -->
-  <div id="loginOverlay" class="login-overlay hidden">
+  <div id="loginOverlay" class="login-overlay">
     <div class="login-card">
       <div class="login-brand">
         <span class="brand-icon">🍽️</span>
@@ -83,7 +83,7 @@
   </div>
 
   <!-- ── Header ── -->
-  <header class="header">
+  <header class="header" id="appHeader">
     <div class="header-inner">
       <div class="brand">
         <span class="brand-icon">🍽️</span>
@@ -105,7 +105,7 @@
   </header>
 
   <!-- ── Nav tabs ── -->
-  <nav class="tabs">
+  <nav class="tabs" id="appNav">
     <button class="tab active" data-tab="menu">📋 Jídelníček</button>
     <button class="tab" data-tab="attendance">👦 Docházka</button>
     <button class="tab" data-tab="offers">🏷️ Akce</button>

@@ -1221,6 +1221,7 @@ async function initAuthFlow() {
 }
 
 function showLogin() {
+  document.body.classList.remove('app-loading');
   document.getElementById('loginOverlay').classList.remove('hidden');
 }
 
@@ -1243,6 +1244,7 @@ async function doLogout() {
 // Every section is fetched fresh from Supabase before anything renders,
 // so two users on two PCs always see the same thing after this resolves.
 async function showApp() {
+  document.body.classList.remove('app-loading');
   document.getElementById('loginOverlay').classList.add('hidden');
   applyRoleGating();
   renderAccountInfo();
