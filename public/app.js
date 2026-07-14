@@ -235,7 +235,7 @@ async function fetchMenu() {
 async function groqParseMenu(menuText) {
   const body = {
     model: 'llama-3.3-70b-versatile',
-    max_tokens: 2000,
+    max_tokens: 4000,
     messages: [
       {
         role: 'system',
