@@ -841,3 +841,12 @@ input, select { font: inherit; }
   margin: .5rem 0 .25rem; cursor: pointer;
 }
 .smart-buy-toggle input { width: 16px; height: 16px; cursor: pointer; }
+
+
+/* ── Auth loading state — hide app shell until auth resolves ── */
+/* Prevents flash of authenticated UI before login check completes */
+body.app-loading #appHeader,
+body.app-loading #appNav,
+body.app-loading .tab-panel {
+  visibility: hidden;
+}
