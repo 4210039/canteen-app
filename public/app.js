@@ -235,7 +235,7 @@ async function fetchMenu() {
 async function groqParseMenu(menuText) {
   const body = {
     model: 'llama-3.3-70b-versatile',
-    max_tokens: 2000,
+    max_tokens: 4000,
     messages: [
       {
         role: 'system',
@@ -340,6 +340,8 @@ const STORES = [
   { id: 'kaufland', name: 'Kaufland – leták', search: 'https://www.kupi.cz/letaky/kaufland', type: 'browse' },
   { id: 'albert',   name: 'Albert – leták',   search: 'https://www.kupi.cz/letaky/albert',   type: 'browse' },
   { id: 'globus',   name: 'Globus – leták',   search: 'https://www.kupi.cz/letaky/globus',   type: 'browse' },
+  { id: 'billa',    name: 'Billa – leták',    search: 'https://www.kupi.cz/letaky/billa',    type: 'browse' },
+  { id: 'tesco',    name: 'Tesco – leták',    search: 'https://www.kupi.cz/letaky/tesco',    type: 'browse' },
 ];
 
 function storeSearchUrl(storeId, query) {
