@@ -2651,8 +2651,10 @@ function initAttendance() {
   });
   weekSelect?.addEventListener('change', () => setAttWeek(weekSelect.value));
 
-  // Kick off the initial load for whatever week the selects above landed on.
-  setAttWeek(weekSelect ? weekSelect.value : currentWeek);
+  // Do NOT load from cloud here — initAttendance() runs at DOMContentLoaded,
+  // before the user is logged in. Cloud fetch happens in showApp() via
+  // refreshAllFromCloud() after a successful login. Just render the empty grid.
+  renderAttendanceGrid();
 
   const ageSelect = document.getElementById('attAgeGroup');
   if (ageSelect) ageSelect.addEventListener('change', renderAttendanceGrid);
