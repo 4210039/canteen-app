@@ -174,6 +174,45 @@ input, select { font: inherit; }
   box-shadow: var(--shadow);
 }
 .offer-card .ingredient-name { font-weight: 600; margin-bottom: .5rem; }
+/* ── Store logo grid (Akce tab) ───────────────────────────── */
+.store-logo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: .5rem;
+  margin-top: .5rem;
+}
+.store-logo-link {
+  display: flex; flex-direction: column; align-items: center;
+  gap: .25rem; padding: .5rem .3rem;
+  border-radius: 8px; text-decoration: none; color: var(--ink);
+  background: var(--white); border: 1px solid var(--border);
+  transition: border-color .15s, box-shadow .15s, transform .1s;
+  cursor: pointer;
+}
+.store-logo-link:hover {
+  border-color: var(--green-light);
+  box-shadow: 0 2px 8px rgba(46,125,50,.15);
+  transform: translateY(-1px);
+  color: var(--ink);
+}
+.store-logo-img {
+  width: 44px; height: 44px; display: block; flex-shrink: 0;
+}
+.store-logo-img svg {
+  width: 44px; height: 44px; display: block;
+}
+.store-logo-name {
+  font-size: .7rem; font-weight: 600; color: var(--ink-mid);
+  text-align: center; line-height: 1.2;
+}
+.store-badge {
+  font-size: .62rem; font-weight: 700; padding: .1rem .35rem;
+  border-radius: 4px; background: var(--amber-pale); color: var(--amber);
+  text-align: center;
+}
+.store-badge.promo { background: var(--red-pale); color: var(--red); }
+
+/* keep old .store-link for any other usage */
 .store-links { display: flex; flex-direction: column; gap: .3rem; }
 .store-link {
   display: flex; align-items: center; justify-content: space-between;
@@ -183,11 +222,6 @@ input, select { font: inherit; }
   border: 1px solid var(--border); transition: background .15s;
 }
 .store-link:hover { background: var(--green-pale); color: var(--green); }
-.store-badge {
-  font-size: .7rem; font-weight: 600; padding: .1rem .4rem;
-  border-radius: 4px; background: var(--amber-pale); color: var(--amber);
-}
-.store-badge.promo { background: var(--red-pale); color: var(--red); }
 
 /* ── Shopping list ────────────────────────────────────────── */
 .shopping-list { display: flex; flex-direction: column; gap: .4rem; }

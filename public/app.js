@@ -334,15 +334,74 @@ function renderIngredients() {
 // ══════════════════════════════════════════════════════════
 
 const STORES = [
-  { id: 'kupi',     name: 'Kupi.cz – Akce',      search: 'https://www.kupi.cz/sleva/{q}',   type: 'search' },
-  { id: 'kupi_all', name: 'Kupi.cz – Hledat vše', search: 'https://www.kupi.cz/hledej?f={q}', type: 'search' },
-  { id: 'lidl',     name: 'Lidl – leták',     search: 'https://www.kupi.cz/letaky/lidl',     type: 'browse' },
-  { id: 'kaufland', name: 'Kaufland – leták', search: 'https://www.kupi.cz/letaky/kaufland', type: 'browse' },
-  { id: 'albert',   name: 'Albert – leták',   search: 'https://www.kupi.cz/letaky/albert',   type: 'browse' },
-  { id: 'globus',   name: 'Globus – leták',   search: 'https://www.kupi.cz/letaky/globus',   type: 'browse' },
-  { id: 'billa',    name: 'Billa – leták',    search: 'https://www.kupi.cz/letaky/billa',    type: 'browse' },
-  { id: 'tesco',    name: 'Tesco – leták',    search: 'https://www.kupi.cz/letaky/tesco',    type: 'browse' },
+  { id: 'kupi',     name: 'Kupi.cz',  label: 'Akce',      search: 'https://www.kupi.cz/sleva/{q}',   type: 'search' },
+  { id: 'kupi_all', name: 'Kupi.cz',  label: 'Hledat vše', search: 'https://www.kupi.cz/hledej?f={q}', type: 'search' },
+  { id: 'lidl',     name: 'Lidl',     label: 'Leták',  search: 'https://www.kupi.cz/letaky/lidl',     type: 'browse' },
+  { id: 'kaufland', name: 'Kaufland', label: 'Leták',  search: 'https://www.kupi.cz/letaky/kaufland', type: 'browse' },
+  { id: 'albert',   name: 'Albert',   label: 'Leták',  search: 'https://www.kupi.cz/letaky/albert',   type: 'browse' },
+  { id: 'globus',   name: 'Globus',   label: 'Leták',  search: 'https://www.kupi.cz/letaky/globus',   type: 'browse' },
+  { id: 'billa',    name: 'Billa',    label: 'Leták',  search: 'https://www.kupi.cz/letaky/billa',    type: 'browse' },
+  { id: 'tesco',    name: 'Tesco',    label: 'Leták',  search: 'https://www.kupi.cz/letaky/tesco',    type: 'browse' },
 ];
+
+/* ── Inline SVG logos — no external deps ─────────────────── */
+const STORE_LOGOS = {
+  kupi: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#FF6600"/>
+    <text x="50%" y="36" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="11" font-weight="800" fill="#fff" letter-spacing="-0.3">KUPI</text>
+    <text x="50%" y="50" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="600" fill="#FFD580">.cz</text>
+  </svg>`,
+
+  kupi_all: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#FF6600"/>
+    <text x="50%" y="36" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="11" font-weight="800" fill="#fff" letter-spacing="-0.3">KUPI</text>
+    <text x="50%" y="50" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="600" fill="#FFD580">.cz</text>
+  </svg>`,
+
+  lidl: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#0050AA"/>
+    <ellipse cx="30" cy="30" rx="22" ry="22" fill="#FFD700"/>
+    <ellipse cx="30" cy="30" rx="17" ry="17" fill="#E30613"/>
+    <text x="50%" y="35" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="11" font-weight="900" fill="#fff" letter-spacing="-0.5">LIDL</text>
+  </svg>`,
+
+  kaufland: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#E30613"/>
+    <text x="50%" y="28" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="900" fill="#fff" letter-spacing="0.5">KAUF</text>
+    <text x="50%" y="40" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="900" fill="#fff" letter-spacing="0.5">LAND</text>
+    <rect x="10" y="43" width="40" height="2.5" rx="1" fill="#FFD700"/>
+  </svg>`,
+
+  albert: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#E30613"/>
+    <circle cx="30" cy="24" r="10" fill="#fff"/>
+    <text x="50%" y="29" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="12" font-weight="900" fill="#E30613">a</text>
+    <text x="50%" y="48" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="700" fill="#fff" letter-spacing="1">ALBERT</text>
+  </svg>`,
+
+  globus: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#004B9B"/>
+    <circle cx="30" cy="27" r="14" fill="none" stroke="#fff" stroke-width="2.5"/>
+    <line x1="30" y1="13" x2="30" y2="41" stroke="#fff" stroke-width="1.5"/>
+    <ellipse cx="30" cy="27" rx="7" ry="14" fill="none" stroke="#fff" stroke-width="1.5"/>
+    <line x1="16" y1="27" x2="44" y2="27" stroke="#fff" stroke-width="1.5"/>
+    <text x="50%" y="52" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="700" fill="#fff" letter-spacing="1">GLOBUS</text>
+  </svg>`,
+
+  billa: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#E30613"/>
+    <rect x="8" y="8" width="44" height="44" rx="6" fill="#fff"/>
+    <text x="50%" y="38" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="16" font-weight="900" fill="#E30613" letter-spacing="-1">BILLA</text>
+  </svg>`,
+
+  tesco: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
+    <rect width="60" height="60" rx="10" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
+    <rect x="0" y="12" width="60" height="12" fill="#E30613"/>
+    <rect x="0" y="24" width="60" height="12" fill="#00539F"/>
+    <rect x="0" y="36" width="60" height="12" fill="#E30613"/>
+    <text x="50%" y="35" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="13" font-weight="900" fill="#fff" letter-spacing="-0.5">TESCO</text>
+  </svg>`,
+};
 
 function storeSearchUrl(storeId, query) {
   const store = STORES.find(s => s.id === storeId);
@@ -509,14 +568,17 @@ function renderOffers(calc) {
     const card = document.createElement('div');
     card.className = 'offer-card';
     const links = STORES.map(s => {
-      const badgeLabel = s.type === 'search' ? '🏷️ Najít akci' : '📰 Prohlédnout leták';
-      return `<a class="store-link" href="${escHtml(storeSearchUrl(s.id, r.label))}" target="_blank" rel="noopener">
-        <span>${escHtml(s.name)}</span>
-        <span class="store-badge ${s.type === 'search' ? 'promo' : ''}">${badgeLabel}</span>
+      const svg = STORE_LOGOS[s.id] || '';
+      const badgeLabel = s.type === 'search' ? 'Akce' : 'Leták';
+      const badgeClass = s.type === 'search' ? 'promo' : '';
+      return `<a class="store-logo-link" href="${escHtml(storeSearchUrl(s.id, r.label))}" target="_blank" rel="noopener" title="${escHtml(s.name)} – ${escHtml(s.label)}">
+        <span class="store-logo-img">${svg}</span>
+        <span class="store-logo-name">${escHtml(s.name)}</span>
+        <span class="store-badge ${badgeClass}">${badgeLabel}</span>
       </a>`;
     }).join('');
     card.innerHTML = `<div class="ingredient-name">🥕 ${escHtml(r.label)} <span class="muted">(potřeba: ${normDisplay})</span></div>
-      <div class="store-links">${links}</div>`;
+      <div class="store-logo-grid">${links}</div>`;
     grid.appendChild(card);
   }
   container.innerHTML = '';
