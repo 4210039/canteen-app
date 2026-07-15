@@ -196,10 +196,10 @@ input, select { font: inherit; }
   color: var(--ink);
 }
 .store-logo-img {
-  width: 44px; height: 44px; display: block; flex-shrink: 0;
+  width: 52px; height: 52px; display: block; flex-shrink: 0;
 }
 .store-logo-img svg {
-  width: 44px; height: 44px; display: block;
+  width: 52px; height: 52px; display: block;
 }
 .store-logo-name {
   font-size: .7rem; font-weight: 600; color: var(--ink-mid);

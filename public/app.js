@@ -344,62 +344,91 @@ const STORES = [
   { id: 'tesco',    name: 'Tesco',    label: 'Leták',  search: 'https://www.kupi.cz/letaky/tesco',    type: 'browse' },
 ];
 
-/* ── Inline SVG logos — no external deps ─────────────────── */
+/* ── Inline SVG logos — brand-faithful, no external deps ─── */
 const STORE_LOGOS = {
+
+  /* Kupi.cz — orange wordmark, shopping tag icon */
   kupi: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-    <rect width="60" height="60" rx="10" fill="#FF6600"/>
-    <text x="50%" y="36" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="11" font-weight="800" fill="#fff" letter-spacing="-0.3">KUPI</text>
-    <text x="50%" y="50" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="600" fill="#FFD580">.cz</text>
+    <rect width="60" height="60" rx="12" fill="#FF6A00"/>
+    <polygon points="22,14 38,14 46,22 46,38 30,50 14,38 14,22" fill="#FF8C38" opacity="0.5"/>
+    <circle cx="30" cy="20" r="3.5" fill="none" stroke="#fff" stroke-width="2"/>
+    <path d="M21,24 h18 l-3,14 H24 Z" fill="#fff"/>
+    <text x="30" y="43" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-size="7.5" font-weight="900" fill="#FF6A00" letter-spacing="0.5">KUPI.CZ</text>
   </svg>`,
 
   kupi_all: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-    <rect width="60" height="60" rx="10" fill="#FF6600"/>
-    <text x="50%" y="36" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="11" font-weight="800" fill="#fff" letter-spacing="-0.3">KUPI</text>
-    <text x="50%" y="50" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="600" fill="#FFD580">.cz</text>
+    <rect width="60" height="60" rx="12" fill="#FF6A00"/>
+    <polygon points="22,14 38,14 46,22 46,38 30,50 14,38 14,22" fill="#FF8C38" opacity="0.5"/>
+    <circle cx="30" cy="20" r="3.5" fill="none" stroke="#fff" stroke-width="2"/>
+    <path d="M21,24 h18 l-3,14 H24 Z" fill="#fff"/>
+    <text x="30" y="43" text-anchor="middle" font-family="Arial Black,Arial,sans-serif" font-size="7.5" font-weight="900" fill="#FF6A00" letter-spacing="0.5">KUPI.CZ</text>
   </svg>`,
 
+  /* Lidl — blue square, yellow circle ring, red inner disc, white italic wordmark */
   lidl: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
     <rect width="60" height="60" rx="10" fill="#0050AA"/>
-    <ellipse cx="30" cy="30" rx="22" ry="22" fill="#FFD700"/>
-    <ellipse cx="30" cy="30" rx="17" ry="17" fill="#E30613"/>
-    <text x="50%" y="35" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="11" font-weight="900" fill="#fff" letter-spacing="-0.5">LIDL</text>
+    <circle cx="30" cy="29" r="21" fill="#FFD700"/>
+    <circle cx="30" cy="29" r="16" fill="#E30613"/>
+    <text x="30" y="34" text-anchor="middle"
+      font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="900"
+      font-style="italic" fill="#fff" letter-spacing="1">Lidl</text>
   </svg>`,
 
+  /* Kaufland — red background, white bold K with yellow horizontal bar */
   kaufland: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-    <rect width="60" height="60" rx="10" fill="#E30613"/>
-    <text x="50%" y="28" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="900" fill="#fff" letter-spacing="0.5">KAUF</text>
-    <text x="50%" y="40" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="900" fill="#fff" letter-spacing="0.5">LAND</text>
-    <rect x="10" y="43" width="40" height="2.5" rx="1" fill="#FFD700"/>
+    <rect width="60" height="60" rx="10" fill="#ED1D24"/>
+    <text x="30" y="38" text-anchor="middle"
+      font-family="Arial Black,Arial,sans-serif" font-size="30" font-weight="900"
+      fill="#fff" letter-spacing="-1">K</text>
+    <rect x="12" y="42" width="36" height="4" rx="2" fill="#FFD700"/>
+    <text x="30" y="55" text-anchor="middle"
+      font-family="Arial,sans-serif" font-size="6.5" font-weight="700"
+      fill="#fff" letter-spacing="1.5">KAUFLAND</text>
   </svg>`,
 
+  /* Albert — white background, red arch/wave swoosh, bold red Albert wordmark */
   albert: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-    <rect width="60" height="60" rx="10" fill="#E30613"/>
-    <circle cx="30" cy="24" r="10" fill="#fff"/>
-    <text x="50%" y="29" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="12" font-weight="900" fill="#E30613">a</text>
-    <text x="50%" y="48" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="700" fill="#fff" letter-spacing="1">ALBERT</text>
+    <rect width="60" height="60" rx="10" fill="#fff" stroke="#e8e8e8" stroke-width="1"/>
+    <path d="M8,38 Q20,10 30,18 Q40,26 52,14" fill="none" stroke="#E2001A" stroke-width="5" stroke-linecap="round"/>
+    <text x="30" y="52" text-anchor="middle"
+      font-family="Arial Black,Arial,sans-serif" font-size="11" font-weight="900"
+      fill="#E2001A" letter-spacing="-0.5">albert</text>
   </svg>`,
 
+  /* Globus — blue background, clean white globe wireframe, yellow G accent */
   globus: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-    <rect width="60" height="60" rx="10" fill="#004B9B"/>
-    <circle cx="30" cy="27" r="14" fill="none" stroke="#fff" stroke-width="2.5"/>
-    <line x1="30" y1="13" x2="30" y2="41" stroke="#fff" stroke-width="1.5"/>
-    <ellipse cx="30" cy="27" rx="7" ry="14" fill="none" stroke="#fff" stroke-width="1.5"/>
-    <line x1="16" y1="27" x2="44" y2="27" stroke="#fff" stroke-width="1.5"/>
-    <text x="50%" y="52" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="8" font-weight="700" fill="#fff" letter-spacing="1">GLOBUS</text>
+    <rect width="60" height="60" rx="10" fill="#003E87"/>
+    <circle cx="30" cy="27" r="16" fill="none" stroke="#fff" stroke-width="2"/>
+    <ellipse cx="30" cy="27" rx="8" ry="16" fill="none" stroke="#fff" stroke-width="1.5"/>
+    <line x1="14" y1="21" x2="46" y2="21" stroke="#fff" stroke-width="1.2" opacity="0.7"/>
+    <line x1="14" y1="27" x2="46" y2="27" stroke="#fff" stroke-width="1.5"/>
+    <line x1="14" y1="33" x2="46" y2="33" stroke="#fff" stroke-width="1.2" opacity="0.7"/>
+    <text x="30" y="53" text-anchor="middle"
+      font-family="Arial Black,Arial,sans-serif" font-size="8" font-weight="900"
+      fill="#FFD200" letter-spacing="2">GLOBUS</text>
   </svg>`,
 
+  /* Billa — white background, bold yellow BILLA on red diagonal band (2019 style) */
   billa: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-    <rect width="60" height="60" rx="10" fill="#E30613"/>
-    <rect x="8" y="8" width="44" height="44" rx="6" fill="#fff"/>
-    <text x="50%" y="38" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="16" font-weight="900" fill="#E30613" letter-spacing="-1">BILLA</text>
+    <rect width="60" height="60" rx="10" fill="#fff" stroke="#e8e8e8" stroke-width="1"/>
+    <clipPath id="bc"><rect width="60" height="60" rx="10"/></clipPath>
+    <g clip-path="url(#bc)">
+      <rect x="-10" y="16" width="90" height="28" transform="rotate(-8,30,30)" fill="#E30613"/>
+    </g>
+    <text x="30" y="35" text-anchor="middle"
+      font-family="Arial Black,Arial,sans-serif" font-size="16" font-weight="900"
+      fill="#FFD700" letter-spacing="1" transform="rotate(-8,30,30)">BILLA</text>
   </svg>`,
 
+  /* Tesco — white background, blue wordmark, 3 brand stripes (red/blue/red) below */
   tesco: `<svg viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg">
-    <rect width="60" height="60" rx="10" fill="#fff" stroke="#e0e0e0" stroke-width="1"/>
-    <rect x="0" y="12" width="60" height="12" fill="#E30613"/>
-    <rect x="0" y="24" width="60" height="12" fill="#00539F"/>
-    <rect x="0" y="36" width="60" height="12" fill="#E30613"/>
-    <text x="50%" y="35" text-anchor="middle" font-family="'Segoe UI',Arial,sans-serif" font-size="13" font-weight="900" fill="#fff" letter-spacing="-0.5">TESCO</text>
+    <rect width="60" height="60" rx="10" fill="#fff" stroke="#e8e8e8" stroke-width="1"/>
+    <text x="30" y="30" text-anchor="middle"
+      font-family="Arial Black,Arial,sans-serif" font-size="14" font-weight="900"
+      fill="#00539F" letter-spacing="-0.5">Tesco</text>
+    <rect x="11" y="35" width="38" height="4" rx="2" fill="#E30613"/>
+    <rect x="11" y="41" width="38" height="4" rx="2" fill="#00539F"/>
+    <rect x="11" y="47" width="38" height="4" rx="2" fill="#E30613"/>
   </svg>`,
 };
 
