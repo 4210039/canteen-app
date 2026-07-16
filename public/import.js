@@ -745,26 +745,22 @@ function renderRosterPreview(info) {
     return `<tr><td>${escHtml(label)}</td><td>${d.presnidavka}</td><td>${d.obed}</td><td>${d.svacina}</td></tr>`;
   }).join('');
 
+  const dpInfoHtml = (r.dpCount > 0 || r.blankWeekdayCount > 0)
+    ? `<tr><td colspan="4" style="padding-top:.75rem">
+        <div style="font-size:.82rem;color:#555;background:#f8f8f8;border-radius:6px;padding:.5rem .7rem;border-left:3px solid #aaa">
+          ℹ️ Soubor obsahuje <strong>${r.dpCount}</strong> záznamů „DP – přítomnost mimo program“ — počítány jako přítomné.
+          ${r.blankWeekdayCount ? `Dále <strong>${r.blankWeekdayCount}</strong> prázdných buněk v pracovních dnech (státní svátky / dny bez výuky) — počítány jako nepřítomné.` : ''}
+        </div>
+      </td></tr>`
+    : '';
+
   document.getElementById('importPreviewTable').innerHTML =
     '<tr><th>Den</th><th>Přesnídávka</th><th>Oběd</th><th>Svačina</th></tr>' + rowsHtml +
-    `<tr><td colspan="4" style="padding-top:.75rem">
-      <label style="display:flex;align-items:flex-start;gap:.5rem;font-size:.85rem;cursor:pointer">
-        <input type="checkbox" id="rosterAckDp" style="margin-top:.2rem" />
-        <span>Soubor obsahuje <strong>${r.dpCount}</strong> záznamů „DP – přítomnost mimo program“.
-        Počty výše je počítají jako přítomné (shoduje se se souhrnným řádkem v souboru).
-        ${r.blankWeekdayCount ? `Dále je <strong>${r.blankWeekdayCount}</strong> prázdných buněk v pracovních dnech
-        (typicky státní svátek / den bez výuky) — ty se počítají jako nepřítomné.` : ''}
-        Potvrzuji, že tomu tak má být.</span>
-      </label>
-    </td></tr>
-    <tr><td colspan="4"><span class="import-warn">⚠️ Import <strong>přepíše</strong> docházku pro ${r.days.length}
+    dpInfoHtml +
+    `<tr><td colspan="4"><span class="import-warn">⚠️ Import <strong>přepíše</strong> docházku pro ${r.days.length}
       dnů uvedených výše ve všech zobrazeních (všichni uživatelé). Tuto akci nelze vrátit zpět.</span></td></tr>`;
 
-  const btn = document.getElementById('btnDoImport');
-  btn.disabled = true; // re-enabled once the checkbox above is ticked
-  document.getElementById('rosterAckDp').addEventListener('change', e => {
-    btn.disabled = !e.target.checked;
-  });
+  document.getElementById('btnDoImport').disabled = false;
 }
 
 // ── Paste parsing ─────────────────────────────────────────
