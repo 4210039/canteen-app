@@ -142,10 +142,12 @@ function openImport(section) {
     // of a 64-column merged-cell grid isn't something anyone would do,
     // and the parser only understands the real .xlsx structure anyway.
     pasteTab?.classList.add('hidden');
-    dropZone.querySelector('.drop-hint').textContent = 'XLSX (měsíční přehled docházky)';
+    dropZone.querySelector('.drop-hint').textContent = 'XLSX (měsíční přehled docházky) — možno vybrat více souborů najednou (všechny třídy)';
     document.getElementById('importFileInput').accept = '.xlsx,.xls';
+    document.getElementById('importFileInput').multiple = true;
   } else {
     pasteTab?.classList.remove('hidden');
+    document.getElementById('importFileInput').multiple = false;
     document.getElementById('importFileInput').accept = '.csv,.txt,.xlsx,.xls,.docx,.pdf,.json';
     dropZone.querySelector('.drop-hint').textContent =
       'CSV · XLSX · XLS · TXT · DOCX · PDF';
@@ -194,11 +196,97 @@ function importDragLeave(e) {
 function importDrop(e) {
   e.preventDefault();
   document.getElementById('importDropZone').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) importFileSelected(file);
+  if (e.dataTransfer.files.length) importFilesSelected(e.dataTransfer.files);
 }
 
 // ── File parsing ──────────────────────────────────────────
+// Entry point for both single and multi-file selection/drop.
+async function importFilesSelected(files) {
+  if (!files || !files.length) return;
+  // For roster mode, allow multiple files and merge them.
+  if (IMPORT_CONFIG[_importSection]?.mode === 'roster') {
+    await importRosterFiles(Array.from(files));
+    return;
+  }
+  // All other modes: single file only (use first).
+  importFileSelected(files[0]);
+}
+
+async function importRosterFiles(files) {
+  const info = document.getElementById('importFileInfo');
+  info.classList.remove('hidden');
+  info.innerHTML = '';
+  document.getElementById('btnDoImport').disabled = true;
+  _rosterParsed = null;
+
+  const parsed = [];
+  for (const file of files) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext !== 'xlsx' && ext !== 'xls') {
+      info.innerHTML += `<span class="import-error">❌ ${escHtml(file.name)}: musí být .xlsx nebo .xls.</span><br>`;
+      continue;
+    }
+    if (file.size > IMPORT_MAX_FILE_BYTES) {
+      info.innerHTML += `<span class="import-error">❌ ${escHtml(file.name)}: soubor je příliš velký.</span><br>`;
+      continue;
+    }
+    try {
+      const result = await parseRosterFileSingle(file);
+      parsed.push(result);
+      info.innerHTML += `<span class="import-ok">✅ ${escHtml(file.name)} — ${escHtml(result.className || '?')}, ${result.days.length} dnů</span><br>`;
+    } catch (err) {
+      info.innerHTML += `<span class="import-error">❌ ${escHtml(file.name)}: ${escHtml(err.message)}</span><br>`;
+    }
+  }
+
+  if (!parsed.length) return;
+
+  // Merge: sum counts per date across all parsed files.
+  const merged = mergeRosterResults(parsed);
+  _rosterParsed = merged;
+  renderRosterPreview(info);
+}
+
+// Merge multiple parsed rosters by summing counts per day (same days guaranteed).
+function mergeRosterResults(results) {
+  // Use first file as base for metadata (year, month, warnings).
+  const base = results[0];
+  const classNames = results.map(r => r.className).filter(Boolean);
+
+  // Build a map from day number → merged counts.
+  const dayMap = new Map();
+  for (const result of results) {
+    for (const d of result.days) {
+      if (!dayMap.has(d.day)) {
+        // Clone the day entry from first file that has it.
+        dayMap.set(d.day, { ...d, presnidavka: 0, obed: 0, svacina: 0 });
+      }
+      const entry = dayMap.get(d.day);
+      entry.presnidavka += d.presnidavka;
+      entry.obed        += d.obed;
+      entry.svacina     += d.svacina;
+    }
+  }
+
+  const days = [...dayMap.values()].sort((a, b) => a.day - b.day);
+  const dpCount = results.reduce((s, r) => s + r.dpCount, 0);
+  const blankWeekdayCount = results.reduce((s, r) => s + r.blankWeekdayCount, 0);
+  const totalChildren = results.reduce((s, r) => s + r.totalChildren, 0);
+  const warnings = results.flatMap(r => r.warnings);
+
+  return {
+    year: base.year,
+    month: base.month,
+    className: classNames.join(', '),
+    classBreakdown: results.map(r => ({ name: r.className || '?', children: r.totalChildren, days: r.days })),
+    days,
+    dpCount,
+    blankWeekdayCount,
+    totalChildren,
+    warnings,
+  };
+}
+
 async function importFileSelected(file) {
   if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
@@ -221,11 +309,14 @@ async function importFileSelected(file) {
       }
       await parseBackupFile(file);
     } else if (IMPORT_CONFIG[_importSection]?.mode === 'roster') {
+      // Single-file roster path (fallback, normally handled by importRosterFiles).
       if (ext !== 'xlsx' && ext !== 'xls') {
         info.innerHTML += `<br><span class="import-error">❌ Měsíční přehled docházky musí být soubor .xlsx nebo .xls (export ze školního systému).</span>`;
         return;
       }
-      await parseRosterFile(file, info);
+      const r = await parseRosterFile(file, info);
+      _rosterParsed = r;
+      renderRosterPreview(info);
     } else if (ext === 'xlsx' || ext === 'xls') {
       await parseExcelFile(file);
     } else if (ext === 'csv' || ext === 'txt') {
@@ -559,8 +650,12 @@ async function parseRosterFile(file, info) {
     throw new Error('V souboru nebyl rozpoznán žádný pracovní den s daty docházky.');
   }
 
-  _rosterParsed = { year, month, className, days, dpCount, blankWeekdayCount, totalChildren, warnings };
-  renderRosterPreview(info);
+  return { year, month, className, days, dpCount, blankWeekdayCount, totalChildren, warnings };
+}
+
+// Pure single-file parse entry point used by multi-file merge.
+async function parseRosterFileSingle(file) {
+  return parseRosterFile(file);
 }
 
 // ── Word (.docx) text extraction via mammoth.js ───────────
@@ -737,8 +832,18 @@ function renderRosterPreview(info) {
       r.warnings.map(w => `<li>${escHtml(w)}</li>`).join('') + '</ul>';
   }
 
+  const isMulti = r.classBreakdown && r.classBreakdown.length > 1;
   document.getElementById('importPreviewCount').textContent =
-    `${MONTH_NAMES_CZ[r.month]} ${r.year}${r.className ? ' · ' + r.className : ''} · ${r.totalChildren} dětí`;
+    `${MONTH_NAMES_CZ[r.month]} ${r.year} · ${isMulti ? r.classBreakdown.length + ' třídy' : (r.className || '')} · celkem ${r.totalChildren} dětí`;
+
+  // Per-class summary header (only shown when multiple classes merged)
+  const classHeaderHtml = isMulti
+    ? `<tr style="background:#f0f7f0"><td colspan="4" style="padding:.4rem .5rem;font-size:.82rem;font-weight:600;color:#2e7d32">
+        🏫 Sloučené třídy: ${r.classBreakdown.map(c => escHtml(c.name) + ' (' + c.children + ' dětí)').join(' &nbsp;+&nbsp; ')}
+        &nbsp;→ celkem ${r.totalChildren} dětí
+      </td></tr>
+      <tr><th>Den</th><th>Přesnídávka</th><th>Oběd</th><th>Svačina</th></tr>`
+    : '<tr><th>Den</th><th>Přesnídávka</th><th>Oběd</th><th>Svačina</th></tr>';
 
   const rowsHtml = r.days.map(d => {
     const label = `${d.day}. ${MONTH_NAMES_CZ[r.month].toLowerCase()} (${['Po','Út','St','Čt','Pá'][d.dayIndex]})`;
@@ -755,7 +860,7 @@ function renderRosterPreview(info) {
     : '';
 
   document.getElementById('importPreviewTable').innerHTML =
-    '<tr><th>Den</th><th>Přesnídávka</th><th>Oběd</th><th>Svačina</th></tr>' + rowsHtml +
+    classHeaderHtml + rowsHtml +
     dpInfoHtml +
     `<tr><td colspan="4"><span class="import-warn">⚠️ Import <strong>přepíše</strong> docházku pro ${r.days.length}
       dnů uvedených výše ve všech zobrazeních (všichni uživatelé). Tuto akci nelze vrátit zpět.</span></td></tr>`;
