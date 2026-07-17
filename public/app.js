@@ -159,8 +159,9 @@ function initTabs() {
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-      // Lazy-load audit log when tab is opened
+      // Lazy-load tab-specific data
       if (btn.dataset.tab === 'audit') loadAuditLog();
+      if (btn.dataset.tab === 'nakup') loadNakupWeekShortcuts();
     });
   });
 }
@@ -2922,14 +2923,24 @@ function initAttendance() {
 // and renders quick-select pill buttons above the Nákup calc result.
 async function loadNakupWeekShortcuts() {
   const orgId = window.SYNC?.ORG_ID;
-  if (!orgId) return;
+  if (!orgId) {
+    // Auth may not be ready yet — retry once after login settles
+    setTimeout(loadNakupWeekShortcuts, 800);
+    return;
+  }
 
   let weeks;
   try {
     const res = await authedFetch(`/api/db/attendance/weeks/${orgId}`);
-    if (!res.ok) return;
-    weeks = await res.json(); // already sorted descending
-  } catch { return; }
+    if (!res.ok) {
+      console.error('loadNakupWeekShortcuts: HTTP', res.status);
+      return;
+    }
+    weeks = await res.json();
+  } catch (err) {
+    console.error('loadNakupWeekShortcuts fetch error:', err);
+    return;
+  }
 
   if (!weeks || !weeks.length) return;
 
