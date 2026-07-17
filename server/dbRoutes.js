@@ -415,6 +415,117 @@ router.post('/audit/login', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Granular data delete routes (admin only) ─────────────────
+
+// DELETE attendance by week
+router.delete('/attendance/:orgId/:weekKey', requireRole('admin'), async (req, res) => {
+  const { orgId, weekKey } = req.params;
+  const supabase = userScopedClient(req);
+  const { error, count } = await supabase.from('attendance')
+    .delete({ count: 'exact' }).eq('org_id', orgId).eq('week_key', weekKey);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'data.delete', entity: 'attendance',
+    description: `Docházka smazána: týden ${weekKey}`, after_json: { weekKey, count } });
+  res.json({ ok: true, count });
+});
+
+// DELETE attendance for a whole month (all weeks whose Thursday falls in that month)
+// Client sends week_keys[] to delete
+router.delete('/attendance/:orgId', requireRole('admin'), async (req, res) => {
+  const { orgId } = req.params;
+  const { week_keys } = req.body;
+  if (!Array.isArray(week_keys) || !week_keys.length)
+    return res.status(400).json({ error: 'week_keys[] required' });
+  const supabase = userScopedClient(req);
+  const { error, count } = await supabase.from('attendance')
+    .delete({ count: 'exact' }).eq('org_id', orgId).in('week_key', week_keys);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'data.delete', entity: 'attendance',
+    description: `Docházka smazána: ${week_keys.length} týdnů`, after_json: { week_keys, count } });
+  res.json({ ok: true, count });
+});
+
+// DELETE a single menu by week_key
+router.delete('/menus/:orgId/:weekKey', requireRole('admin'), async (req, res) => {
+  const { orgId, weekKey } = req.params;
+  const supabase = userScopedClient(req);
+  const { error, count } = await supabase.from('menus')
+    .delete({ count: 'exact' }).eq('org_id', orgId).eq('week_key', weekKey);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'data.delete', entity: 'menus',
+    description: `Jídelníček smazán: týden ${weekKey}`, after_json: { weekKey } });
+  res.json({ ok: true, count });
+});
+
+// DELETE all menus for org
+router.delete('/menus/:orgId', requireRole('admin'), async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = userScopedClient(req);
+  const { error, count } = await supabase.from('menus')
+    .delete({ count: 'exact' }).eq('org_id', orgId);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'data.delete', entity: 'menus',
+    description: `Všechny jídelníčky smazány`, after_json: { count } });
+  res.json({ ok: true, count });
+});
+
+// DELETE shopping list(s) by id — body: { ids: [uuid, ...] }
+router.delete('/shopping-lists', requireRole('admin'), async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length)
+    return res.status(400).json({ error: 'ids[] required' });
+  const supabase = userScopedClient(req);
+  // Items are cascade-deleted by FK in the DB; delete the list rows only.
+  const { error, count } = await supabase.from('shopping_lists')
+    .delete({ count: 'exact' }).in('id', ids);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'data.delete', entity: 'shopping_lists',
+    description: `Nákupní seznam(y) smazán(y): ${ids.length} záznamů`, after_json: { ids, count } });
+  res.json({ ok: true, count });
+});
+
+// GET all shopping lists for org (for the management UI)
+router.get('/shopping-lists/:orgId', requireRole('admin', 'vedouci'), async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = userScopedClient(req);
+  const { data, error } = await supabase.from('shopping_lists')
+    .select('id, week_key, created_at, status, age_group')
+    .eq('org_id', orgId)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE ledger entries by date range
+router.delete('/ledger/:orgId/range', requireRole('admin'), async (req, res) => {
+  const { orgId } = req.params;
+  const { date_from, date_to } = req.body;
+  if (!date_from || !date_to) return res.status(400).json({ error: 'date_from and date_to required' });
+  const supabase = userScopedClient(req);
+  const { error, count } = await supabase.from('inventory_ledger')
+    .delete({ count: 'exact' })
+    .eq('org_id', orgId)
+    .gte('created_at', date_from)
+    .lte('created_at', date_to + 'T23:59:59Z');
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'data.delete', entity: 'inventory_ledger',
+    description: `Sklad smazán: ${date_from} – ${date_to}, ${count} záznamů`,
+    after_json: { date_from, date_to, count } });
+  res.json({ ok: true, count });
+});
+
+// DELETE all ledger for org
+router.delete('/ledger/:orgId/all', requireRole('admin'), async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = userScopedClient(req);
+  const { error, count } = await supabase.from('inventory_ledger')
+    .delete({ count: 'exact' }).eq('org_id', orgId);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'data.delete', entity: 'inventory_ledger',
+    description: `Celý sklad smazán`, after_json: { count } });
+  res.json({ ok: true, count });
+});
+
 // ── Clear all org data (admin only) ──────────────────────────
 // Deletes all inventory_ledger, attendance, menus, shopping_lists
 // rows for the org. Used by the "Smazat všechna data" button.

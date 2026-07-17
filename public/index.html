@@ -538,10 +538,111 @@
       </div>
     </div>
 
-    <div class="card settings-card danger-zone">
-      <h3>Správa dat</h3>
-      <p class="muted">Tato akce trvale smaže všechna data organizace v databázi (sklad, docházka, jídelníčky, nákupní seznamy) — dotkne se všech uživatelů, nejen tohoto prohlížeče.</p>
-      <button class="btn btn-danger" id="btnClearData">🗑️ Smazat všechna data</button>
+    <div class="card settings-card danger-zone" id="dataManagementCard">
+      <h3>🗂️ Správa dat</h3>
+      <p class="muted" style="margin-bottom:1rem">Vyberte doménu a přesně co chcete smazat. Každá akce je nevratná a dotkne se všech uživatelů organizace. Před smazáním doporučujeme stáhnout zálohu.</p>
+
+      <!-- Docházka -->
+      <div class="dm-section">
+        <div class="dm-section-header" onclick="dmToggle('attendance')">
+          <span>👦 Docházka</span><span class="dm-chevron" id="dm-chev-attendance">▶</span>
+        </div>
+        <div class="dm-body hidden" id="dm-body-attendance">
+          <div class="dm-row">
+            <label class="dm-label">Smazat konkrétní týden</label>
+            <div class="dm-controls">
+              <select id="dmAttWeek" class="dm-select"></select>
+              <button class="btn btn-danger btn-sm" onclick="dmDeleteAttWeek()">Smazat týden</button>
+            </div>
+          </div>
+          <div class="dm-row">
+            <label class="dm-label">Smazat celý měsíc</label>
+            <div class="dm-controls">
+              <select id="dmAttMonth" class="dm-select"></select>
+              <button class="btn btn-danger btn-sm" onclick="dmDeleteAttMonth()">Smazat měsíc</button>
+            </div>
+          </div>
+          <div class="dm-row dm-row-danger">
+            <label class="dm-label">Smazat veškerou docházku</label>
+            <button class="btn btn-danger btn-sm" onclick="dmDeleteAttAll()">Smazat vše</button>
+          </div>
+          <div class="dm-preview hidden" id="dm-preview-attendance"></div>
+        </div>
+      </div>
+
+      <!-- Jídelníčky -->
+      <div class="dm-section">
+        <div class="dm-section-header" onclick="dmToggle('menus')">
+          <span>📋 Jídelníčky</span><span class="dm-chevron" id="dm-chev-menus">▶</span>
+        </div>
+        <div class="dm-body hidden" id="dm-body-menus">
+          <div class="dm-row">
+            <label class="dm-label">Smazat konkrétní týden</label>
+            <div class="dm-controls">
+              <select id="dmMenuWeek" class="dm-select"></select>
+              <button class="btn btn-danger btn-sm" onclick="dmDeleteMenuWeek()">Smazat týden</button>
+            </div>
+          </div>
+          <div class="dm-row dm-row-danger">
+            <label class="dm-label">Smazat všechny jídelníčky</label>
+            <button class="btn btn-danger btn-sm" onclick="dmDeleteMenusAll()">Smazat vše</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Nákupní seznamy -->
+      <div class="dm-section">
+        <div class="dm-section-header" onclick="dmToggle('shopping')">
+          <span>🛒 Nákupní seznamy</span><span class="dm-chevron" id="dm-chev-shopping">▶</span>
+        </div>
+        <div class="dm-body hidden" id="dm-body-shopping">
+          <p class="muted dm-hint">Zaškrtněte seznamy ke smazání.</p>
+          <div id="dmShoppingList" class="dm-checklist"></div>
+          <div class="dm-row" style="margin-top:.5rem">
+            <button class="btn btn-danger btn-sm" onclick="dmDeleteShoppingSelected()">Smazat označené</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sklad -->
+      <div class="dm-section">
+        <div class="dm-section-header" onclick="dmToggle('ledger')">
+          <span>📦 Sklad (pohyby)</span><span class="dm-chevron" id="dm-chev-ledger">▶</span>
+        </div>
+        <div class="dm-body hidden" id="dm-body-ledger">
+          <div class="dm-row">
+            <label class="dm-label">Smazat záznamy v rozsahu dat</label>
+            <div class="dm-controls">
+              <input type="date" id="dmLedgerFrom" class="dm-date" />
+              <span class="muted">–</span>
+              <input type="date" id="dmLedgerTo" class="dm-date" />
+              <button class="btn btn-danger btn-sm" onclick="dmDeleteLedgerRange()">Smazat rozsah</button>
+            </div>
+          </div>
+          <div class="dm-row dm-row-danger">
+            <label class="dm-label">Smazat celou historii skladu</label>
+            <button class="btn btn-danger btn-sm" onclick="dmDeleteLedgerAll()">Smazat vše</button>
+          </div>
+          <div class="dm-preview hidden" id="dm-preview-ledger"></div>
+        </div>
+      </div>
+
+      <!-- Nuclear option -->
+      <div class="dm-section dm-nuclear">
+        <div class="dm-section-header" onclick="dmToggle('nuclear')">
+          <span>☢️ Smazat úplně vše</span><span class="dm-chevron" id="dm-chev-nuclear">▶</span>
+        </div>
+        <div class="dm-body hidden" id="dm-body-nuclear">
+          <p class="muted dm-hint">Tato akce trvale smaže <strong>veškerá data organizace</strong> — sklad, docházku, jídelníčky i nákupní seznamy. Dotkne se všech uživatelů.</p>
+          <div class="dm-row">
+            <label class="dm-label">Pro potvrzení napište <strong>SMAZAT</strong></label>
+            <div class="dm-controls">
+              <input type="text" id="dmNuclearConfirm" class="dm-text" placeholder="SMAZAT" />
+              <button class="btn btn-danger btn-sm" id="btnClearData" onclick="dmDeleteAll()">Smazat vše</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 

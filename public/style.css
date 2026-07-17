@@ -338,6 +338,61 @@ input, select { font: inherit; }
 .status-row { display: flex; align-items: center; gap: .75rem; }
 .danger-zone { border-color: var(--red-pale); }
 
+/* ── Data Management (Správa dat) ────────────────────────── */
+.dm-section {
+  border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: .5rem; overflow: hidden;
+}
+.dm-section-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: .6rem .85rem; cursor: pointer; font-weight: 600; font-size: .88rem;
+  background: var(--surface); user-select: none;
+  transition: background .12s;
+}
+.dm-section-header:hover { background: var(--green-pale); }
+.dm-nuclear .dm-section-header { color: var(--red); }
+.dm-nuclear .dm-section-header:hover { background: var(--red-pale); }
+.dm-chevron { font-size: .7rem; color: var(--ink-light); transition: transform .15s; }
+.dm-chevron.open { transform: rotate(90deg); }
+.dm-body { padding: .75rem .85rem; display: flex; flex-direction: column; gap: .5rem; border-top: 1px solid var(--border); }
+.dm-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; flex-wrap: wrap; padding: .4rem 0;
+}
+.dm-row-danger { border-top: 1px dashed var(--red-pale); padding-top: .6rem; margin-top: .2rem; }
+.dm-label { font-size: .83rem; font-weight: 500; flex: 1; min-width: 160px; }
+.dm-controls { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.dm-select {
+  padding: .3rem .5rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--white); color: var(--ink); font-size: .82rem; max-width: 240px;
+}
+.dm-date {
+  padding: .3rem .5rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--white); color: var(--ink); font-size: .82rem;
+}
+.dm-text {
+  padding: .3rem .5rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--white); color: var(--ink); font-size: .82rem; width: 110px;
+}
+.dm-hint { font-size: .8rem; color: var(--ink-light); margin: 0; }
+.dm-preview {
+  font-size: .8rem; padding: .4rem .6rem; border-radius: 6px;
+  background: var(--red-pale); color: var(--red); margin-top: .25rem;
+}
+.dm-checklist { display: flex; flex-direction: column; gap: .3rem; }
+.dm-check-item {
+  display: flex; align-items: center; gap: .5rem; font-size: .82rem;
+  padding: .3rem .4rem; border-radius: 5px; border: 1px solid var(--border);
+  background: var(--white);
+}
+.dm-check-item input[type=checkbox] { margin: 0; cursor: pointer; }
+.dm-check-item .dm-ci-info { flex: 1; }
+.dm-check-item .dm-ci-badge {
+  font-size: .72rem; padding: .1rem .4rem; border-radius: 4px;
+  background: var(--amber-pale); color: var(--amber); font-weight: 600;
+}
+.dm-check-item .dm-ci-badge.confirmed { background: var(--green-pale); color: var(--green); }
+
 /* ── Toast ────────────────────────────────────────────────── */
 .toast {
   position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 9999;

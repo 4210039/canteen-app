@@ -1108,19 +1108,301 @@ function initSettings() {
     }
   });
 
-  document.getElementById('btnClearData').addEventListener('click', async () => {
-    if (!confirm('Opravdu smazat VŠECHNA data organizace v databázi (sklad, docházka, jídelníčky, nákupní seznamy)? Tato akce je nevratná a dotkne se všech uživatelů.')) return;
-    try {
-      await dbDelete(`/api/db/clear/${window.SYNC.ORG_ID}`);
-      attendanceData = {};
-      await refreshAllFromCloud();
-      renderAll();
-      if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
-      toast('Všechna data byla smazána.', 'info');
-    } catch (err) {
-      toast('Data se nepodařilo smazat: ' + err.message, 'error');
-    }
-  });
+  // Old nuclear button (id kept for backward compat, now inside dm-nuclear section)
+  document.getElementById('btnClearData')?.addEventListener('click', dmDeleteAll);
+}
+
+// ══════════════════════════════════════════════════════════
+// DATA MANAGEMENT (Správa dat)
+// ══════════════════════════════════════════════════════════
+
+// ── Accordion ─────────────────────────────────────────────
+function dmToggle(section) {
+  const body  = document.getElementById(`dm-body-${section}`);
+  const chev  = document.getElementById(`dm-chev-${section}`);
+  const isOpen = !body.classList.contains('hidden');
+  if (isOpen) {
+    body.classList.add('hidden');
+    chev.classList.remove('open');
+  } else {
+    body.classList.remove('hidden');
+    chev.classList.add('open');
+    dmLoad(section);
+  }
+}
+
+// Lazy-load selects / lists when a section opens
+async function dmLoad(section) {
+  if (section === 'attendance') await dmLoadAttWeeks();
+  if (section === 'menus')      await dmLoadMenuWeeks();
+  if (section === 'shopping')   await dmLoadShoppingLists();
+}
+
+// ── Helpers ───────────────────────────────────────────────
+function dmConfirm(msg) { return confirm(msg); }
+
+function dmSetPreview(id, text, visible = true) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle('hidden', !visible);
+}
+
+// Group week_keys by month (using Thursday = index 3)
+function dmGroupWeeksByMonth(weeks) {
+  const byMonth = new Map();
+  for (const wk of weeks) {
+    const thursday = getWeekDates(wk)[3];
+    const y = thursday.getFullYear();
+    const m = String(thursday.getMonth() + 1).padStart(2, '0');
+    const key = `${y}-${m}`;
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key).push(wk);
+  }
+  return byMonth;
+}
+
+function dmMonthLabel(monthKey) {
+  const [y, m] = monthKey.split('-');
+  return `${MONTH_NAMES_CZ[parseInt(m)]} ${y}`;
+}
+
+// ── Attendance ─────────────────────────────────────────────
+async function dmLoadAttWeeks() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  let weeks = [];
+  try {
+    const res = await authedFetch(`/api/db/attendance/weeks/${orgId}`);
+    if (res.ok) weeks = await res.json();
+  } catch { return; }
+
+  // Week select
+  const weekSel = document.getElementById('dmAttWeek');
+  if (weekSel) {
+    weekSel.innerHTML = weeks.length
+      ? weeks.map(wk => `<option value="${escHtml(wk)}">${escHtml(weekLabelCz(wk))}</option>`).join('')
+      : '<option value="">— žádná data —</option>';
+  }
+
+  // Month select — group by month
+  const byMonth = dmGroupWeeksByMonth(weeks);
+  const monthSel = document.getElementById('dmAttMonth');
+  if (monthSel) {
+    monthSel.innerHTML = byMonth.size
+      ? [...byMonth.entries()].map(([mk, wks]) =>
+          `<option value="${escHtml(mk)}">${escHtml(dmMonthLabel(mk))} (${wks.length} týdnů)</option>`
+        ).join('')
+      : '<option value="">— žádná data —</option>';
+  }
+}
+
+async function dmDeleteAttWeek() {
+  const weekSel = document.getElementById('dmAttWeek');
+  const wk = weekSel?.value;
+  if (!wk) return toast('Žádný týden k smazání.', 'warning');
+  if (!dmConfirm(`Smazat docházku pro ${weekLabelCz(wk)}?\nTato akce je nevratná.`)) return;
+  const orgId = window.SYNC.ORG_ID;
+  try {
+    const res = await authedFetch(`/api/db/attendance/${orgId}/${wk}`, { method: 'DELETE' });
+    const { count } = await res.json();
+    toast(`Docházka smazána (${count} záznamů) — ${weekLabelCz(wk)}.`, 'info');
+    attendanceData[wk] = {};
+    renderAttendanceGrid?.();
+    await dmLoadAttWeeks();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+async function dmDeleteAttMonth() {
+  const monthSel = document.getElementById('dmAttMonth');
+  const mk = monthSel?.value;
+  if (!mk) return toast('Žádný měsíc k smazání.', 'warning');
+
+  // Collect week_keys for this month
+  const orgId = window.SYNC.ORG_ID;
+  let weeks = [];
+  try {
+    const res = await authedFetch(`/api/db/attendance/weeks/${orgId}`);
+    if (res.ok) weeks = await res.json();
+  } catch { return; }
+  const byMonth = dmGroupWeeksByMonth(weeks);
+  const weekKeys = byMonth.get(mk) || [];
+  if (!weekKeys.length) return toast('Žádná data pro tento měsíc.', 'warning');
+
+  if (!dmConfirm(`Smazat docházku pro ${dmMonthLabel(mk)} (${weekKeys.length} týdnů)?\nTato akce je nevratná.`)) return;
+  try {
+    const res = await authedFetch(`/api/db/attendance/${orgId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_keys: weekKeys }),
+    });
+    const { count } = await res.json();
+    weekKeys.forEach(wk => { attendanceData[wk] = {}; });
+    toast(`Docházka za ${dmMonthLabel(mk)} smazána (${count} záznamů).`, 'info');
+    renderAttendanceGrid?.();
+    await dmLoadAttWeeks();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+async function dmDeleteAttAll() {
+  if (!dmConfirm('Smazat VEŠKEROU docházku organizace?\nTato akce je nevratná a dotkne se všech uživatelů.')) return;
+  const orgId = window.SYNC.ORG_ID;
+  // Fetch all weeks then delete them all
+  try {
+    const res = await authedFetch(`/api/db/attendance/weeks/${orgId}`);
+    const weeks = res.ok ? await res.json() : [];
+    if (!weeks.length) return toast('Žádná docházka k smazání.', 'info');
+    const delRes = await authedFetch(`/api/db/attendance/${orgId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week_keys: weeks }),
+    });
+    const { count } = await delRes.json();
+    attendanceData = {};
+    toast(`Veškerá docházka smazána (${count} záznamů).`, 'info');
+    renderAttendanceGrid?.();
+    await dmLoadAttWeeks();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+// ── Menus ──────────────────────────────────────────────────
+async function dmLoadMenuWeeks() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  let menus = [];
+  try {
+    const res = await authedFetch(`/api/db/menus/${orgId}`);
+    if (res.ok) menus = await res.json();
+  } catch { return; }
+
+  const sel = document.getElementById('dmMenuWeek');
+  if (!sel) return;
+  sel.innerHTML = menus.length
+    ? menus.map(m => `<option value="${escHtml(m.week_key)}">${escHtml(weekLabelCz(m.week_key))}</option>`).join('')
+    : '<option value="">— žádné jídelníčky —</option>';
+}
+
+async function dmDeleteMenuWeek() {
+  const wk = document.getElementById('dmMenuWeek')?.value;
+  if (!wk) return toast('Žádný týden k smazání.', 'warning');
+  if (!dmConfirm(`Smazat jídelníček pro ${weekLabelCz(wk)}?`)) return;
+  const orgId = window.SYNC.ORG_ID;
+  try {
+    await authedFetch(`/api/db/menus/${orgId}/${wk}`, { method: 'DELETE' });
+    toast(`Jídelníček smazán — ${weekLabelCz(wk)}.`, 'info');
+    await dmLoadMenuWeeks();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+async function dmDeleteMenusAll() {
+  if (!dmConfirm('Smazat VŠECHNY jídelníčky organizace? Tato akce je nevratná.')) return;
+  const orgId = window.SYNC.ORG_ID;
+  try {
+    const res = await authedFetch(`/api/db/menus/${orgId}`, { method: 'DELETE' });
+    const { count } = await res.json();
+    toast(`Všechny jídelníčky smazány (${count}).`, 'info');
+    await dmLoadMenuWeeks();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+// ── Shopping lists ─────────────────────────────────────────
+async function dmLoadShoppingLists() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  let lists = [];
+  try {
+    const res = await authedFetch(`/api/db/shopping-lists/${orgId}`);
+    if (res.ok) lists = await res.json();
+  } catch { return; }
+
+  const container = document.getElementById('dmShoppingList');
+  if (!container) return;
+  if (!lists.length) {
+    container.innerHTML = '<p class="muted dm-hint">Žádné nákupní seznamy.</p>';
+    return;
+  }
+  container.innerHTML = lists.map(l => {
+    const date = l.created_at ? new Date(l.created_at).toLocaleDateString('cs-CZ') : '—';
+    const badge = l.status === 'confirmed'
+      ? '<span class="dm-ci-badge confirmed">potvrzeno</span>'
+      : '<span class="dm-ci-badge">rozpracováno</span>';
+    return `<label class="dm-check-item">
+      <input type="checkbox" class="dm-sl-cb" value="${escHtml(l.id)}" />
+      <span class="dm-ci-info">
+        <strong>${escHtml(weekLabelCz(l.week_key))}</strong>
+        <span class="muted"> · ${date}</span>
+      </span>
+      ${badge}
+    </label>`;
+  }).join('');
+}
+
+async function dmDeleteShoppingSelected() {
+  const checked = [...document.querySelectorAll('.dm-sl-cb:checked')].map(cb => cb.value);
+  if (!checked.length) return toast('Žádné seznamy nejsou označeny.', 'warning');
+  if (!dmConfirm(`Smazat ${checked.length} nákupní seznam(y)? Tato akce je nevratná.`)) return;
+  try {
+    const res = await authedFetch('/api/db/shopping-lists', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: checked }),
+    });
+    const { count } = await res.json();
+    toast(`Smazáno ${count} nákupních seznamů.`, 'info');
+    await dmLoadShoppingLists();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+// ── Ledger (Sklad) ─────────────────────────────────────────
+async function dmDeleteLedgerRange() {
+  const from = document.getElementById('dmLedgerFrom')?.value;
+  const to   = document.getElementById('dmLedgerTo')?.value;
+  if (!from || !to) return toast('Zadejte obě data rozsahu.', 'warning');
+  if (from > to) return toast('Datum "od" musí být před datem "do".', 'warning');
+  if (!dmConfirm(`Smazat záznamy skladu od ${from} do ${to}? Tato akce je nevratná.`)) return;
+  const orgId = window.SYNC.ORG_ID;
+  try {
+    const res = await authedFetch(`/api/db/ledger/${orgId}/range`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date_from: from, date_to: to }),
+    });
+    const { count } = await res.json();
+    toast(`Smazáno ${count} záznamů skladu.`, 'info');
+    await refreshAllFromCloud();
+    renderAll();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+async function dmDeleteLedgerAll() {
+  if (!dmConfirm('Smazat CELOU historii pohybů skladu? Tato akce je nevratná.')) return;
+  const orgId = window.SYNC.ORG_ID;
+  try {
+    const res = await authedFetch(`/api/db/ledger/${orgId}/all`, { method: 'DELETE' });
+    const { count } = await res.json();
+    toast(`Celý sklad smazán (${count} záznamů).`, 'info');
+    await refreshAllFromCloud();
+    renderAll();
+  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
+}
+
+// ── Nuclear ────────────────────────────────────────────────
+async function dmDeleteAll() {
+  const input = document.getElementById('dmNuclearConfirm')?.value?.trim();
+  if (input !== 'SMAZAT') {
+    toast('Pro potvrzení napište přesně: SMAZAT', 'warning');
+    return;
+  }
+  if (!dmConfirm('POSLEDNÍ VAROVÁNÍ: Smazat opravdu VŠECHNA data organizace?\nTato akce je nevratná.')) return;
+  try {
+    await dbDelete(`/api/db/clear/${window.SYNC.ORG_ID}`);
+    attendanceData = {};
+    await refreshAllFromCloud();
+    renderAll();
+    renderAttendanceGrid?.();
+    document.getElementById('dmNuclearConfirm').value = '';
+    toast('Všechna data byla smazána.', 'info');
+  } catch (err) { toast('Data se nepodařilo smazat: ' + err.message, 'error'); }
 }
 
 // ══════════════════════════════════════════════════════════
