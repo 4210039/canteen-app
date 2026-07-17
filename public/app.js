@@ -2306,6 +2306,116 @@ function calcIngredients() {
     </p>`;
 }
 
+// ── Nákup tab: independent week picker + DB-sourced calc ───
+// Populates the Nákup year picker (same range as Docházka).
+function populateNakupYearSelect(selectedYear) {
+  const select = document.getElementById('nakupYearPicker');
+  if (!select) return;
+  const reqYear = parseInt(selectedYear, 10) || new Date().getFullYear();
+  const startYear = Math.min(2020, reqYear);
+  const endYear   = Math.max(new Date().getFullYear() + 10, reqYear);
+  select.innerHTML = '';
+  for (let y = startYear; y <= endYear; y++) {
+    const opt = document.createElement('option');
+    opt.value = String(y);
+    opt.textContent = String(y);
+    select.appendChild(opt);
+  }
+  select.value = String(reqYear);
+}
+
+function populateNakupWeekSelect(year, selectedWeek) {
+  const select = document.getElementById('nakupWeekPicker');
+  if (!select) return;
+  const totalWeeks = isoWeeksInYear(year);
+  let html = '';
+  for (let w = 1; w <= totalWeeks; w++) {
+    const wk = `${year}-W${String(w).padStart(2, '0')}`;
+    html += `<option value="${wk}">${escHtml(weekLabelCz(wk))}</option>`;
+  }
+  select.innerHTML = html;
+  const belongsToYear = selectedWeek && selectedWeek.startsWith(`${year}-W`);
+  select.value = belongsToYear ? selectedWeek
+    : (new Date().getFullYear() === year ? getISOWeekString() : `${year}-W01`);
+}
+
+async function calcIngredientsForNakup() {
+  const weekStr  = document.getElementById('nakupWeekPicker')?.value;
+  const ageGroup = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
+  const container = document.getElementById('nakupIngredientCalcResult');
+  if (!weekStr || !container) return;
+
+  container.innerHTML = `<div class="empty-state"><span class="empty-icon">⏳</span><p>Načítám docházku z databáze…</p></div>`;
+
+  // Always fetch fresh from DB — this is the source of truth after multi-class import.
+  try {
+    await loadAttendanceWeekFromCloud(weekStr);
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">❌</span><p>Nepodařilo se načíst docházku: ${escHtml(err.message)}</p></div>`;
+    return;
+  }
+
+  const weekData = attendanceData[weekStr] || {};
+  const mealTotals = { presnidavka: 0, obed: 0, svacina: 0 };
+  for (let d = 0; d < 5; d++) {
+    const dayData = weekData[d] || {};
+    MEALS_LIST.forEach(m => { mealTotals[m.key] += parseInt(dayData[m.key]) || 0; });
+  }
+
+  const totalPortions = Object.values(mealTotals).reduce((a, b) => a + b, 0);
+  if (totalPortions === 0) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🧮</span>
+      <p>Pro týden <strong>${escHtml(weekLabelCz(weekStr))}</strong> nejsou v databázi žádné záznamy docházky.<br>
+      Nejprve nahrajte měsíční přehled (záložka Docházka → Import).</p></div>`;
+    return;
+  }
+
+  const N = window.NORMS;
+  const zeleninaRatio = getZeleninaSplitRatio() / 100;
+  const results = Object.entries(N.foodGroups).flatMap(([key, group]) => {
+    let totalGrams = 0;
+    const breakdown = MEALS_LIST.map(m => {
+      const children = mealTotals[m.key];
+      const g = N.calcGrams(key, m.key, ageGroup, children);
+      totalGrams += g;
+      return `${m.label}: ${g} g (${children} dětí)`;
+    });
+    if (key === 'zeleninaOvoce') {
+      const zeleninaGrams = Math.round(totalGrams * zeleninaRatio);
+      const ovoceGrams = totalGrams - zeleninaGrams;
+      const mk = (label, grams, suffix) => ({
+        key, rowKey: `${key}_${suffix}`, label, totalGrams: grams,
+        displayAmt: grams >= 1000 ? `${(grams / 1000).toFixed(1)} kg` : `${grams} g`,
+        breakdown, color: group.color,
+      });
+      return [mk('Zelenina', zeleninaGrams, 'zelenina'), mk('Ovoce', ovoceGrams, 'ovoce')];
+    }
+    const displayAmt = totalGrams >= 1000 ? `${(totalGrams / 1000).toFixed(1)} kg` : `${totalGrams} g`;
+    return [{ key, rowKey: key, label: group.label, totalGrams, displayAmt, breakdown, color: group.color }];
+  });
+
+  // Update LAST_CALC so "Načíst z výpočtu surovin" and Akce tab work immediately.
+  window.LAST_CALC = { weekKey: weekStr, ageGroup, mealTotals, totalPortions, results };
+
+  container.innerHTML = `
+    <div class="ingr-calc-grid">
+      ${results.map(r => `
+        <div class="ingr-calc-card">
+          <div class="ic-group" style="color:${r.color}">${escHtml(r.label)}</div>
+          <div class="ic-amount" style="color:${r.color}">${escHtml(r.displayAmt)}</div>
+          <div class="ic-breakdown">${r.breakdown.map(b => escHtml(b)).join('<br>')}</div>
+          <div class="ic-bar" style="--pct: ${Math.min(100, r.totalGrams / 50)}%"></div>
+        </div>
+      `).join('')}
+    </div>
+    <p class="muted" style="margin-top:.75rem">
+      Celkem porcí: <strong>${totalPortions}</strong> ·
+      Věková skupina: <strong>${escHtml(N.ageGroups[ageGroup]?.label || ageGroup)}</strong> ·
+      Týden: <strong>${escHtml(weekLabelCz(weekStr))}</strong> ·
+      Hodnoty dle Vyhl. č. 107/2005 Sb., ve znění Vyhl. č. 310/2025 Sb.
+    </p>`;
+}
+
 // ══════════════════════════════════════════════════════════
 // NORMS / COMPLIANCE MODULE
 // ══════════════════════════════════════════════════════════
@@ -2791,6 +2901,19 @@ function initAttendance() {
 
   document.getElementById('btnCopyPrevWeek')?.addEventListener('click', copyPrevWeek);
   document.getElementById('btnCalcIngredients')?.addEventListener('click', calcIngredients);
+
+  // ── Nákup tab week picker init ──────────────────────────
+  const nakupCurrentWeek = getISOWeekString();
+  const nakupCurrentYear = new Date().getFullYear();
+  populateNakupYearSelect(nakupCurrentYear);
+  populateNakupWeekSelect(nakupCurrentYear, nakupCurrentWeek);
+
+  const nakupYearSel = document.getElementById('nakupYearPicker');
+  const nakupWeekSel = document.getElementById('nakupWeekPicker');
+  nakupYearSel?.addEventListener('change', () => {
+    populateNakupWeekSelect(parseInt(nakupYearSel.value, 10));
+  });
+  document.getElementById('btnNakupCalc')?.addEventListener('click', calcIngredientsForNakup);
 }
 
 function initNorms() {

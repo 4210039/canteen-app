@@ -292,6 +292,16 @@ input, select { font: inherit; }
 .stat-value { font-size: 1.6rem; font-weight: 700; color: var(--green); }
 .stat-sub   { font-size: .8rem; color: var(--ink-light); }
 
+/* ── Nákup week picker row ────────────────────────────────── */
+.nakup-week-row {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+.nakup-week-row .picker-select {
+  padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--white); color: var(--ink); font-size: .85rem;
+}
+
 .week-row {
   display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
   padding: .6rem .75rem; background: var(--white);

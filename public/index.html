@@ -223,6 +223,22 @@
       </div>
     </div>
 
+    <!-- Week picker + ingredient calc — sources directly from DB for chosen week -->
+    <div class="section-title mt-2">
+      <h3>🧮 Výpočet surovin dle docházky a norem</h3>
+    </div>
+    <div class="nakup-week-row">
+      <select id="nakupYearPicker" class="picker-select"></select>
+      <select id="nakupWeekPicker" class="picker-select" style="flex:1"></select>
+      <button class="btn btn-secondary btn-sm" id="btnNakupCalc">Přepočítat</button>
+    </div>
+    <div id="nakupIngredientCalcResult">
+      <div class="empty-state">
+        <span class="empty-icon">🧮</span>
+        <p>Vyberte týden a klikněte „Přepočítat".</p>
+      </div>
+    </div>
+
     <!-- Per-category reserve inputs — rendered by JS into this container -->
     <div id="nakupRezervaPanel" class="hidden">
       <div class="section-title">
