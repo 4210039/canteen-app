@@ -115,6 +115,21 @@ router.post('/menus', async (req, res) => {
 });
 
 // ── Attendance ────────────────────────────────────────────────
+// Returns distinct week_keys that have attendance data for this org,
+// sorted descending — used by Nákup tab to show quick-select week buttons.
+router.get('/attendance/weeks/:orgId', async (req, res) => {
+  const supabase = userScopedClient(req);
+  const { orgId } = req.params;
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('week_key')
+    .eq('org_id', orgId)
+    .order('week_key', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  const weeks = [...new Set((data || []).map(r => r.week_key))];
+  res.json(weeks);
+});
+
 router.get('/attendance/:orgId/:weekKey', async (req, res) => {
   const supabase = userScopedClient(req);
   const { orgId, weekKey } = req.params;

@@ -295,12 +295,30 @@ input, select { font: inherit; }
 /* ── Nákup week picker row ────────────────────────────────── */
 .nakup-week-row {
   display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
-  margin-bottom: .75rem;
+  margin-bottom: .5rem;
 }
 .nakup-week-row .picker-select {
   padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 6px;
   background: var(--white); color: var(--ink); font-size: .85rem;
 }
+
+/* Quick-select week pills from last imported month */
+.nakup-week-shortcuts {
+  display: flex; align-items: center; flex-wrap: wrap; gap: .4rem;
+  margin-bottom: .75rem; min-height: 1rem;
+}
+.nws-label {
+  font-size: .78rem; color: var(--ink-mid); font-weight: 600;
+  white-space: nowrap; margin-right: .2rem;
+}
+.nws-btn {
+  font-size: .78rem; padding: .3rem .65rem; line-height: 1.3;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--white); color: var(--ink); cursor: pointer;
+  text-align: center; transition: background .12s, border-color .12s, color .12s;
+}
+.nws-btn:hover { background: var(--green-pale); border-color: var(--green-light); color: var(--green); }
+.nws-btn.active { background: var(--green); border-color: var(--green); color: #fff; }
 
 .week-row {
   display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;

@@ -171,6 +171,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => {
     p.classList.toggle('active', p.id === 'tab-' + name);
   });
+  if (name === 'nakup') loadNakupWeekShortcuts();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -2902,7 +2903,7 @@ function initAttendance() {
   document.getElementById('btnCopyPrevWeek')?.addEventListener('click', copyPrevWeek);
   document.getElementById('btnCalcIngredients')?.addEventListener('click', calcIngredients);
 
-  // ── Nákup tab week picker init ──────────────────────────
+// ── Nákup tab week picker init ──────────────────────────
   const nakupCurrentWeek = getISOWeekString();
   const nakupCurrentYear = new Date().getFullYear();
   populateNakupYearSelect(nakupCurrentYear);
@@ -2914,6 +2915,73 @@ function initAttendance() {
     populateNakupWeekSelect(parseInt(nakupYearSel.value, 10));
   });
   document.getElementById('btnNakupCalc')?.addEventListener('click', calcIngredientsForNakup);
+}
+
+// Fetches all distinct week_keys with attendance data from DB,
+// groups them by month, picks the most recent month's weeks,
+// and renders quick-select pill buttons above the Nákup calc result.
+async function loadNakupWeekShortcuts() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+
+  let weeks;
+  try {
+    const res = await authedFetch(`/api/db/attendance/weeks/${orgId}`);
+    if (!res.ok) return;
+    weeks = await res.json(); // already sorted descending
+  } catch { return; }
+
+  if (!weeks || !weeks.length) return;
+
+  // Group by year-month (first 7 chars of week_key: "2026-W0" not useful,
+  // so derive month from the Monday of each week).
+  const byMonth = new Map();
+  for (const wk of weeks) {
+    const monday = getWeekDates(wk)[0];
+    const monthKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}`;
+    if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
+    byMonth.get(monthKey).push(wk);
+  }
+
+  // Most recent month (first entry since weeks sorted desc).
+  const latestMonthKey = [...byMonth.keys()][0];
+  const latestWeeks = byMonth.get(latestMonthKey).sort(); // asc for display
+
+  // Parse month label from first week's Monday.
+  const firstMonday = getWeekDates(latestWeeks[0])[0];
+  const monthLabel = `${MONTH_NAMES_CZ[firstMonday.getMonth() + 1]} ${firstMonday.getFullYear()}`;
+
+  const container = document.getElementById('nakupWeekShortcuts');
+  if (!container) return;
+
+  container.innerHTML = `
+    <span class="nws-label">Poslední import — ${escHtml(monthLabel)}:</span>
+    ${latestWeeks.map(wk => {
+      const dates = getWeekDates(wk);
+      const [,wNum] = wk.split('-W');
+      const label = `Týden ${parseInt(wNum, 10)}<br><small>${formatCzDate(dates[0])} – ${formatCzDate(dates[4])}</small>`;
+      return `<button class="btn nws-btn" data-week="${escHtml(wk)}">${label}</button>`;
+    }).join('')}`;
+
+  container.querySelectorAll('.nws-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wk = btn.dataset.week;
+      const year = parseInt(wk.split('-W')[0], 10);
+      // Sync the dropdowns to match the chosen week.
+      const yearSel = document.getElementById('nakupYearPicker');
+      if (yearSel && yearSel.value !== String(year)) {
+        yearSel.value = String(year);
+        populateNakupWeekSelect(year, wk);
+      }
+      const weekSel = document.getElementById('nakupWeekPicker');
+      if (weekSel) weekSel.value = wk;
+      // Highlight active button.
+      container.querySelectorAll('.nws-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      // Run the calc immediately.
+      calcIngredientsForNakup();
+    });
+  });
 }
 
 function initNorms() {
