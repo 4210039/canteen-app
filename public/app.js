@@ -2933,12 +2933,14 @@ async function loadNakupWeekShortcuts() {
 
   if (!weeks || !weeks.length) return;
 
-  // Group by year-month (first 7 chars of week_key: "2026-W0" not useful,
-  // so derive month from the Monday of each week).
+  // Group weeks by month using the Thursday of each week — ISO rule: Thursday
+  // always falls in the same month that "owns" the week, so weeks spanning
+  // month boundaries are attributed correctly (e.g. a week starting June 30
+  // whose Thursday is July 3 belongs to July).
   const byMonth = new Map();
   for (const wk of weeks) {
-    const monday = getWeekDates(wk)[0];
-    const monthKey = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}`;
+    const thursday = getWeekDates(wk)[3]; // index 3 = Thursday
+    const monthKey = `${thursday.getFullYear()}-${String(thursday.getMonth() + 1).padStart(2, '0')}`;
     if (!byMonth.has(monthKey)) byMonth.set(monthKey, []);
     byMonth.get(monthKey).push(wk);
   }
@@ -2947,9 +2949,9 @@ async function loadNakupWeekShortcuts() {
   const latestMonthKey = [...byMonth.keys()][0];
   const latestWeeks = byMonth.get(latestMonthKey).sort(); // asc for display
 
-  // Parse month label from first week's Monday.
-  const firstMonday = getWeekDates(latestWeeks[0])[0];
-  const monthLabel = `${MONTH_NAMES_CZ[firstMonday.getMonth() + 1]} ${firstMonday.getFullYear()}`;
+  // Parse month label from Thursday of the first week in this month.
+  const firstThursday = getWeekDates(latestWeeks[0])[3];
+  const monthLabel = `${MONTH_NAMES_CZ[firstThursday.getMonth() + 1]} ${firstThursday.getFullYear()}`;
 
   const container = document.getElementById('nakupWeekShortcuts');
   if (!container) return;
