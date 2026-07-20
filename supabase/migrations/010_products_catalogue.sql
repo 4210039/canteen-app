@@ -31,7 +31,7 @@ create table if not exists products (
 create index idx_products_food_group on products(food_group);
 create index idx_products_org        on products(org_id);
 create index idx_products_l2         on products(category_l2);
-create index idx_products_name       on products using gin(to_tsvector('czech', name));
+create index idx_products_name       on products using gin(to_tsvector('simple', name));
 
 -- ── Link ledger entries to products (nullable, backwards compatible) ──────
 alter table inventory_ledger
