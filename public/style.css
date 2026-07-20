@@ -402,9 +402,10 @@ input, select { font: inherit; }
   transition: opacity .3s; max-width: 320px;
 }
 .toast.hidden { display: none; }
-.toast.success { background: var(--green); }
-.toast.error   { background: var(--red); }
-.toast.info    { background: var(--blue); }
+.toast.success  { background: var(--green); }
+.toast.error    { background: var(--red); }
+.toast.info     { background: var(--blue); }
+.toast.warning  { background: var(--amber); }
 
 /* ── Muted helper ─────────────────────────────────────────── */
 .muted { color: var(--ink-light); font-size: .82rem; }

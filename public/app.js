@@ -1388,44 +1388,58 @@ async function dmDeleteLedgerAll() {
 // ── Nuclear ────────────────────────────────────────────────
 let _dmDeleteAllRunning = false;
 async function dmDeleteAll() {
-  if (_dmDeleteAllRunning) { console.warn('dmDeleteAll already running'); return; }
+  if (_dmDeleteAllRunning) return;
 
   const inputEl = document.getElementById('dmNuclearConfirm');
-  const input = inputEl?.value?.trim();
-  console.log('[dmDeleteAll] input value:', JSON.stringify(input));
-  console.log('[dmDeleteAll] SYNC.ORG_ID:', window.SYNC?.ORG_ID);
+  // Normalize — strip any invisible/non-breaking spaces from copy-paste
+  const input = (inputEl?.value || '').replace(/[\u00A0\u200B\s]+/g, ' ').trim();
 
   if (input !== 'SMAZAT') {
-    alert('Pro potvrzení napište přesně: SMAZAT\n(aktuálně: "' + input + '")');
+    toast('Pro potvrzení napište přesně: SMAZAT', 'warning');
     return;
   }
   if (!confirm('POSLEDNÍ VAROVÁNÍ: Smazat opravdu VŠECHNA data organizace?\nTato akce je nevratná.')) return;
 
-  const orgId = window.SYNC?.ORG_ID;
-  if (!orgId) {
-    alert('Chyba: orgId není k dispozici. Přihlaste se znovu.');
-    return;
-  }
-
   _dmDeleteAllRunning = true;
-  console.log('[dmDeleteAll] calling DELETE /api/db/clear/' + orgId);
+  const orgId = window.SYNC?.ORG_ID;
   try {
-    const res = await authedFetch(`/api/db/clear/${orgId}`, { method: 'DELETE' });
-    console.log('[dmDeleteAll] response status:', res.status);
-    const body = await res.json();
-    console.log('[dmDeleteAll] response body:', body);
-    if (!res.ok) {
-      alert('Smazání selhalo: ' + (body.error || res.status));
-      return;
+    // Reuse the same working endpoints that individual section buttons use
+    const headers = { 'Content-Type': 'application/json' };
+
+    // 1. Attendance — get all weeks then delete
+    const weeksRes = await authedFetch(`/api/db/attendance/weeks/${orgId}`);
+    if (weeksRes.ok) {
+      const weeks = await weeksRes.json();
+      if (weeks.length) {
+        await authedFetch(`/api/db/attendance/${orgId}`, {
+          method: 'DELETE', headers, body: JSON.stringify({ week_keys: weeks })
+        });
+      }
     }
+
+    // 2. Menus
+    await authedFetch(`/api/db/menus/${orgId}`, { method: 'DELETE' });
+
+    // 3. Shopping lists — get all then delete
+    const slRes = await authedFetch(`/api/db/shopping-lists/${orgId}`);
+    if (slRes.ok) {
+      const lists = await slRes.json();
+      if (lists.length) {
+        await authedFetch('/api/db/shopping-lists', {
+          method: 'DELETE', headers, body: JSON.stringify({ ids: lists.map(l => l.id) })
+        });
+      }
+    }
+
+    // 4. Ledger — delete all
+    await authedFetch(`/api/db/ledger/${orgId}/all`, { method: 'DELETE' });
+
     attendanceData = {};
     if (inputEl) inputEl.value = '';
-    alert('✅ Všechna data byla úspěšně smazána.');
-    toast('Všechna data byla smazána.', 'info');
-    try { await refreshAllFromCloud(); renderAll(); renderAttendanceGrid?.(); } catch(e) { console.warn('refresh after clear:', e); }
+    toast('Všechna data byla smazána.', 'success');
+    try { await refreshAllFromCloud(); renderAll(); renderAttendanceGrid?.(); } catch(e) {}
   } catch (err) {
-    console.error('[dmDeleteAll] fetch error:', err);
-    alert('Chyba při mazání: ' + err.message);
+    toast('Chyba při mazání: ' + err.message, 'error');
   } finally {
     _dmDeleteAllRunning = false;
   }
