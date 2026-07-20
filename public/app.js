@@ -1388,24 +1388,44 @@ async function dmDeleteLedgerAll() {
 // ── Nuclear ────────────────────────────────────────────────
 let _dmDeleteAllRunning = false;
 async function dmDeleteAll() {
-  if (_dmDeleteAllRunning) return;
-  const input = document.getElementById('dmNuclearConfirm')?.value?.trim();
+  if (_dmDeleteAllRunning) { console.warn('dmDeleteAll already running'); return; }
+
+  const inputEl = document.getElementById('dmNuclearConfirm');
+  const input = inputEl?.value?.trim();
+  console.log('[dmDeleteAll] input value:', JSON.stringify(input));
+  console.log('[dmDeleteAll] SYNC.ORG_ID:', window.SYNC?.ORG_ID);
+
   if (input !== 'SMAZAT') {
-    toast('Pro potvrzení napište přesně: SMAZAT', 'warning');
+    alert('Pro potvrzení napište přesně: SMAZAT\n(aktuálně: "' + input + '")');
     return;
   }
-  if (!dmConfirm('POSLEDNÍ VAROVÁNÍ: Smazat opravdu VŠECHNA data organizace?\nTato akce je nevratná.')) return;
+  if (!confirm('POSLEDNÍ VAROVÁNÍ: Smazat opravdu VŠECHNA data organizace?\nTato akce je nevratná.')) return;
+
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) {
+    alert('Chyba: orgId není k dispozici. Přihlaste se znovu.');
+    return;
+  }
+
   _dmDeleteAllRunning = true;
+  console.log('[dmDeleteAll] calling DELETE /api/db/clear/' + orgId);
   try {
-    await dbDelete(`/api/db/clear/${window.SYNC.ORG_ID}`);
+    const res = await authedFetch(`/api/db/clear/${orgId}`, { method: 'DELETE' });
+    console.log('[dmDeleteAll] response status:', res.status);
+    const body = await res.json();
+    console.log('[dmDeleteAll] response body:', body);
+    if (!res.ok) {
+      alert('Smazání selhalo: ' + (body.error || res.status));
+      return;
+    }
     attendanceData = {};
-    await refreshAllFromCloud();
-    renderAll();
-    renderAttendanceGrid?.();
-    document.getElementById('dmNuclearConfirm').value = '';
+    if (inputEl) inputEl.value = '';
+    alert('✅ Všechna data byla úspěšně smazána.');
     toast('Všechna data byla smazána.', 'info');
+    try { await refreshAllFromCloud(); renderAll(); renderAttendanceGrid?.(); } catch(e) { console.warn('refresh after clear:', e); }
   } catch (err) {
-    toast('Data se nepodařilo smazat: ' + err.message, 'error');
+    console.error('[dmDeleteAll] fetch error:', err);
+    alert('Chyba při mazání: ' + err.message);
   } finally {
     _dmDeleteAllRunning = false;
   }
