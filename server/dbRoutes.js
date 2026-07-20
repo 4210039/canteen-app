@@ -529,7 +529,7 @@ router.delete('/ledger/:orgId/all', requireRole('admin', 'vedouci'), async (req,
 // ── Products catalogue ────────────────────────────────────────────────────
 
 // GET all products visible to this org (global + org-specific)
-router.get('/products/:orgId', async (req, res) => {
+router.get('/products/:orgId', requireAuth, async (req, res) => {
   const supabase = userScopedClient(req);
   const { orgId } = req.params;
   const { data, error } = await supabase
@@ -538,8 +538,11 @@ router.get('/products/:orgId', async (req, res) => {
     .or(`org_id.is.null,org_id.eq.${orgId}`)
     .eq('active', true)
     .order('category_l1').order('category_l2').order('name');
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  if (error) {
+    console.error('[products GET] supabase error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+  res.json(data || []);
 });
 
 // POST create a custom org-specific product

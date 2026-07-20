@@ -108,10 +108,15 @@ async function loadAttendanceWeekFromCloud(weekStr) {
 // is the only thing standing in for the old loadAll()/loadAttendance().
 async function loadProductsFromCloud() {
   const orgId = window.SYNC?.ORG_ID;
-  if (!orgId) return;
-  const res = await authedFetch(`/api/db/products/${orgId}`);
-  if (!res.ok) throw new Error(`products HTTP ${res.status}`);
-  STATE.products = await res.json();
+  if (!orgId) { console.warn('[products] no orgId yet'); return; }
+  try {
+    const res = await authedFetch(`/api/db/products/${orgId}`);
+    if (!res.ok) { console.error('[products] HTTP', res.status); return; }
+    STATE.products = await res.json();
+    console.log('[products] loaded', STATE.products.length, 'products');
+  } catch (err) {
+    console.error('[products] fetch error:', err);
+  }
 }
 
 async function refreshAllFromCloud() {

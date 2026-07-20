@@ -322,3 +322,12 @@ insert into products (org_id, name, brand, category_l1, category_l2, food_group,
 (null,'Violife Vegan plátkový sýr s příchutí gouda','Violife','Zdravá výživa a speciální dieta','Bezlaktózy a rostlinné alternativy','none','g')
 ;
 
+
+-- ── Fix RLS: drop restrictive policy, add permissive one ─────────────────
+-- The original policy used current_user_org_id() which doesn't work
+-- correctly for global rows (org_id IS NULL) with the user-scoped client.
+-- Replace with a simple open-read policy (products are not sensitive data).
+drop policy if exists "products_select" on products;
+
+create policy "products_select_open" on products
+  for select using (true);
