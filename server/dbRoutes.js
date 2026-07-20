@@ -358,7 +358,7 @@ router.get('/members', async (req, res) => {
 });
 
 // Only admin can change another user's role.
-router.patch('/members/:userId/role', requireRole('admin'), async (req, res) => {
+router.patch('/members/:userId/role', requireRole('admin', 'vedouci'), async (req, res) => {
   const { role } = req.body;
   if (!['admin', 'vedouci', 'kucharka', 'tester'].includes(role)) {
     return res.status(400).json({ error: 'role must be admin, vedouci, kucharka, or tester' });
@@ -418,7 +418,7 @@ router.post('/audit/login', async (req, res) => {
 // ── Granular data delete routes (admin only) ─────────────────
 
 // DELETE attendance by week
-router.delete('/attendance/:orgId/:weekKey', requireRole('admin'), async (req, res) => {
+router.delete('/attendance/:orgId/:weekKey', requireRole('admin', 'vedouci'), async (req, res) => {
   const { orgId, weekKey } = req.params;
   const supabase = userScopedClient(req);
   const { error, count } = await supabase.from('attendance')
@@ -431,7 +431,7 @@ router.delete('/attendance/:orgId/:weekKey', requireRole('admin'), async (req, r
 
 // DELETE attendance for a whole month (all weeks whose Thursday falls in that month)
 // Client sends week_keys[] to delete
-router.delete('/attendance/:orgId', requireRole('admin'), async (req, res) => {
+router.delete('/attendance/:orgId', requireRole('admin', 'vedouci'), async (req, res) => {
   const { orgId } = req.params;
   const { week_keys } = req.body;
   if (!Array.isArray(week_keys) || !week_keys.length)
@@ -446,7 +446,7 @@ router.delete('/attendance/:orgId', requireRole('admin'), async (req, res) => {
 });
 
 // DELETE a single menu by week_key
-router.delete('/menus/:orgId/:weekKey', requireRole('admin'), async (req, res) => {
+router.delete('/menus/:orgId/:weekKey', requireRole('admin', 'vedouci'), async (req, res) => {
   const { orgId, weekKey } = req.params;
   const supabase = userScopedClient(req);
   const { error, count } = await supabase.from('menus')
@@ -458,7 +458,7 @@ router.delete('/menus/:orgId/:weekKey', requireRole('admin'), async (req, res) =
 });
 
 // DELETE all menus for org
-router.delete('/menus/:orgId', requireRole('admin'), async (req, res) => {
+router.delete('/menus/:orgId', requireRole('admin', 'vedouci'), async (req, res) => {
   const { orgId } = req.params;
   const supabase = userScopedClient(req);
   const { error, count } = await supabase.from('menus')
@@ -470,7 +470,7 @@ router.delete('/menus/:orgId', requireRole('admin'), async (req, res) => {
 });
 
 // DELETE shopping list(s) by id — body: { ids: [uuid, ...] }
-router.delete('/shopping-lists', requireRole('admin'), async (req, res) => {
+router.delete('/shopping-lists', requireRole('admin', 'vedouci'), async (req, res) => {
   const { ids } = req.body;
   if (!Array.isArray(ids) || !ids.length)
     return res.status(400).json({ error: 'ids[] required' });
@@ -497,7 +497,7 @@ router.get('/shopping-lists/:orgId', requireRole('admin', 'vedouci'), async (req
 });
 
 // DELETE ledger entries by date range
-router.delete('/ledger/:orgId/range', requireRole('admin'), async (req, res) => {
+router.delete('/ledger/:orgId/range', requireRole('admin', 'vedouci'), async (req, res) => {
   const { orgId } = req.params;
   const { date_from, date_to } = req.body;
   if (!date_from || !date_to) return res.status(400).json({ error: 'date_from and date_to required' });
@@ -515,7 +515,7 @@ router.delete('/ledger/:orgId/range', requireRole('admin'), async (req, res) => 
 });
 
 // DELETE all ledger for org
-router.delete('/ledger/:orgId/all', requireRole('admin'), async (req, res) => {
+router.delete('/ledger/:orgId/all', requireRole('admin', 'vedouci'), async (req, res) => {
   const { orgId } = req.params;
   const supabase = userScopedClient(req);
   const { error, count } = await supabase.from('inventory_ledger')
@@ -529,12 +529,15 @@ router.delete('/ledger/:orgId/all', requireRole('admin'), async (req, res) => {
 // ── Clear all org data (admin only) ──────────────────────────
 // Deletes all inventory_ledger, attendance, menus, shopping_lists
 // rows for the org. Used by the "Smazat všechna data" button.
-router.delete('/clear/:orgId', requireRole('admin'), async (req, res) => {
+router.delete('/clear/:orgId', requireRole('admin', 'vedouci'), async (req, res) => {
   const { orgId } = req.params;
   const supabase = userScopedClient(req);
   const tables = ['inventory_ledger', 'attendance', 'menus', 'shopping_lists'];
   for (const table of tables) {
-    const { error } = await supabase.from(table).delete().eq('org_id', orgId);
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq('org_id', orgId);
     if (error) return res.status(500).json({ error: `${table}: ${error.message}` });
   }
   await audit(req, {
