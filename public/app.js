@@ -1108,8 +1108,7 @@ function initSettings() {
     }
   });
 
-  // Old nuclear button (id kept for backward compat, now inside dm-nuclear section)
-  document.getElementById('btnClearData')?.addEventListener('click', dmDeleteAll);
+  // Nuclear delete button wired via onclick in HTML
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1387,13 +1386,16 @@ async function dmDeleteLedgerAll() {
 }
 
 // ── Nuclear ────────────────────────────────────────────────
+let _dmDeleteAllRunning = false;
 async function dmDeleteAll() {
+  if (_dmDeleteAllRunning) return;
   const input = document.getElementById('dmNuclearConfirm')?.value?.trim();
   if (input !== 'SMAZAT') {
     toast('Pro potvrzení napište přesně: SMAZAT', 'warning');
     return;
   }
   if (!dmConfirm('POSLEDNÍ VAROVÁNÍ: Smazat opravdu VŠECHNA data organizace?\nTato akce je nevratná.')) return;
+  _dmDeleteAllRunning = true;
   try {
     await dbDelete(`/api/db/clear/${window.SYNC.ORG_ID}`);
     attendanceData = {};
@@ -1402,7 +1404,11 @@ async function dmDeleteAll() {
     renderAttendanceGrid?.();
     document.getElementById('dmNuclearConfirm').value = '';
     toast('Všechna data byla smazána.', 'info');
-  } catch (err) { toast('Data se nepodařilo smazat: ' + err.message, 'error'); }
+  } catch (err) {
+    toast('Data se nepodařilo smazat: ' + err.message, 'error');
+  } finally {
+    _dmDeleteAllRunning = false;
+  }
 }
 
 // ══════════════════════════════════════════════════════════
