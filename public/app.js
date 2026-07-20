@@ -32,6 +32,7 @@ const STATE = {
   ingredients: [],          // string[]
   ledger: [],                // unified income/outcome transactions (see model above)
   cart: [],                  // current shopping list draft, built from norms calc (session-only, not persisted to DB)
+  products: [],              // product catalogue cache [{id,name,brand,category_l1,category_l2,food_group,default_unit,default_store}]
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -105,6 +106,14 @@ async function loadAttendanceWeekFromCloud(weekStr) {
 // Refreshes every cloud-backed section in one go. Called after login
 // and whenever a tab/page is (re)opened, per "always re-fetch" — this
 // is the only thing standing in for the old loadAll()/loadAttendance().
+async function loadProductsFromCloud() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  const res = await authedFetch(`/api/db/products/${orgId}`);
+  if (!res.ok) throw new Error(`products HTTP ${res.status}`);
+  STATE.products = await res.json();
+}
+
 async function refreshAllFromCloud() {
   setStatus('busy', 'Synchronizuji s databází…');
   try {
@@ -112,6 +121,7 @@ async function refreshAllFromCloud() {
       loadLedgerFromCloud(),
       loadCurrentMenuFromCloud(),
       loadAttendanceWeekFromCloud(getCurrentAttWeek()),
+      loadProductsFromCloud(),
     ]);
     setStatus('ok', 'Synchronizováno');
     return true;
@@ -999,13 +1009,15 @@ function initWarehouseForm() {
     document.getElementById('addItemForm').classList.add('hidden');
   });
   document.getElementById('btnSaveItem').addEventListener('click', async () => {
-    const name  = document.getElementById('itemName').value.trim();
+    const nameEl = document.getElementById('itemName');
+    const name  = nameEl.value.trim();
     const foodGroup = document.getElementById('itemGroup').value || null;
     const qty   = parseFloat(document.getElementById('itemQty').value) || 1;
     const unit  = document.getElementById('itemUnit').value;
     const price = parseFloat(document.getElementById('itemPrice').value) || 0;
     const store = document.getElementById('itemStore').value;
     const promo = document.getElementById('itemPromo').value === 'true';
+    const productId = nameEl._productId || null; // set by productComboApply
 
     if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
 
@@ -1014,7 +1026,7 @@ function initWarehouseForm() {
     saveBtn.disabled = true;
     try {
       await dbPost('/api/db/ledger/bulk-in', {
-        entries: [{ org_id: window.SYNC.ORG_ID, name, food_group: foodGroup, qty, unit, grams: toGrams(qty, unit), price, store, promo, week_key: weekKey, source: 'manual' }]
+        entries: [{ org_id: window.SYNC.ORG_ID, name, food_group: foodGroup, qty, unit, grams: toGrams(qty, unit), price, store, promo, week_key: weekKey, source: 'manual', product_id: productId }]
       });
       await loadLedgerFromCloud();
 
@@ -1023,6 +1035,7 @@ function initWarehouseForm() {
       renderFinance();
       document.getElementById('addItemForm').classList.add('hidden');
       ['itemName','itemQty','itemPrice'].forEach(id => document.getElementById(id).value = '');
+      nameEl._productId = null;
       toast('Položka přidána na sklad!', 'success');
     } catch (err) {
       toast('Položku se nepodařilo uložit: ' + err.message, 'error');
@@ -1110,6 +1123,118 @@ function initSettings() {
 
   // Nuclear delete button wired via onclick in HTML
 }
+
+// ══════════════════════════════════════════════════════════
+// PRODUCT COMBOBOX
+// ══════════════════════════════════════════════════════════
+
+// Called on every keystroke in a product name input.
+// listId = id of the <ul> dropdown to populate.
+function productComboInput(input, listId) {
+  const q = input.value.trim().toLowerCase();
+  const list = document.getElementById(listId);
+  if (!list) return;
+
+  if (q.length < 1) { list.classList.add('hidden'); list.innerHTML = ''; return; }
+
+  // Search: name, brand, category_l2 all tokenised
+  const matches = STATE.products.filter(p => {
+    const hay = `${p.name} ${p.brand || ''} ${p.category_l2}`.toLowerCase();
+    return q.split(' ').every(tok => hay.includes(tok));
+  }).slice(0, 12); // max 12 suggestions
+
+  if (!matches.length) { list.classList.add('hidden'); list.innerHTML = ''; return; }
+
+  list.innerHTML = matches.map((p, i) => `
+    <li class="pcl-item" data-idx="${i}" tabindex="-1"
+        onmousedown="productComboSelect(event,'${listId}')">
+      <span class="pcl-name">${escHtml(p.name)}</span>
+      <span class="pcl-meta">${escHtml(p.category_l2)} · ${escHtml(p.default_unit)}</span>
+    </li>`).join('');
+
+  // Stash matches on the list for selection
+  list._matches = matches;
+  list.classList.remove('hidden');
+}
+
+// Keyboard navigation: Arrow keys + Enter + Escape
+function productComboKey(e, listId) {
+  const list = document.getElementById(listId);
+  if (!list || list.classList.contains('hidden')) return;
+  const items = list.querySelectorAll('.pcl-item');
+  const active = list.querySelector('.pcl-item.active');
+  let idx = active ? parseInt(active.dataset.idx) : -1;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    idx = Math.min(idx + 1, items.length - 1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    idx = Math.max(idx - 1, 0);
+  } else if (e.key === 'Enter' && active) {
+    e.preventDefault();
+    productComboApply(listId, idx);
+    return;
+  } else if (e.key === 'Escape') {
+    list.classList.add('hidden');
+    return;
+  } else { return; }
+
+  items.forEach(li => li.classList.remove('active'));
+  if (items[idx]) items[idx].classList.add('active');
+}
+
+// Mousedown selection (use mousedown not click to fire before blur)
+function productComboSelect(e, listId) {
+  e.preventDefault();
+  const idx = parseInt(e.currentTarget.dataset.idx);
+  productComboApply(listId, idx);
+}
+
+// Apply selected product to the form fields
+function productComboApply(listId, idx) {
+  const list = document.getElementById(listId);
+  const p = list?._matches?.[idx];
+  if (!p) return;
+  list.classList.add('hidden');
+
+  // --- Warehouse entry form ---
+  if (listId === 'itemComboList') {
+    document.getElementById('itemName').value = p.name;
+    // Set food group select
+    const grpSel = document.getElementById('itemGroup');
+    if (grpSel) {
+      // Find the option whose value matches p.food_group
+      const opt = [...grpSel.options].find(o => o.value === p.food_group);
+      if (opt) grpSel.value = p.food_group;
+    }
+    // Set unit
+    const unitSel = document.getElementById('itemUnit');
+    if (unitSel) {
+      const opt = [...unitSel.options].find(o => o.value === p.default_unit);
+      if (opt) unitSel.value = p.default_unit;
+    }
+    // Set store if known
+    if (p.default_store) {
+      const storeSel = document.getElementById('itemStore');
+      if (storeSel) {
+        const opt = [...storeSel.options].find(o => o.value === p.default_store);
+        if (opt) storeSel.value = p.default_store;
+      }
+    }
+    // Store product_id for ledger entry
+    document.getElementById('itemName')._productId = p.id;
+  }
+}
+
+// Close combo when clicking outside
+document.addEventListener('click', e => {
+  document.querySelectorAll('.product-combo-list').forEach(list => {
+    if (!list.contains(e.target) && e.target.id !== 'itemName') {
+      list.classList.add('hidden');
+    }
+  });
+});
 
 // ══════════════════════════════════════════════════════════
 // DATA MANAGEMENT (Správa dat)

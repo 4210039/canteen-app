@@ -292,7 +292,26 @@ input, select { font: inherit; }
 .stat-value { font-size: 1.6rem; font-weight: 700; color: var(--green); }
 .stat-sub   { font-size: .8rem; color: var(--ink-light); }
 
-/* ── Nákup week picker row ────────────────────────────────── */
+/* ── Product combobox ─────────────────────────────────────── */
+.product-combo-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+  background: var(--white); border: 1.5px solid var(--green-light);
+  border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.12);
+  max-height: 280px; overflow-y: auto; margin: 0; padding: 0;
+  list-style: none;
+}
+.pcl-item {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .5rem; padding: .45rem .7rem; cursor: pointer; font-size: .83rem;
+  border-bottom: 1px solid var(--border);
+  transition: background .08s;
+}
+.pcl-item:last-child { border-bottom: none; }
+.pcl-item:hover, .pcl-item.active { background: var(--green-pale); }
+.pcl-name { font-weight: 500; color: var(--ink); flex: 1; }
+.pcl-meta { font-size: .74rem; color: var(--ink-light); white-space: nowrap; }
+
+
 .nakup-week-row {
   display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
   margin-bottom: .5rem;

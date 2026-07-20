@@ -332,9 +332,12 @@
     <div id="addItemForm" class="card form-card hidden">
       <h3>Ruční příjem na sklad</h3>
       <div class="form-grid">
-        <div class="form-group">
+        <div class="form-group" style="position:relative">
           <label>Název suroviny</label>
-          <input type="text" id="itemName" placeholder="např. Máslo" />
+          <input type="text" id="itemName" placeholder="Začněte psát…" autocomplete="off"
+                 oninput="productComboInput(this,'itemComboList')"
+                 onkeydown="productComboKey(event,'itemComboList')" />
+          <ul id="itemComboList" class="product-combo-list hidden"></ul>
         </div>
         <div class="form-group">
           <label>Skupina potravin</label>

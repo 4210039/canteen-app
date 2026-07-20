@@ -526,6 +526,48 @@ router.delete('/ledger/:orgId/all', requireRole('admin', 'vedouci'), async (req,
   res.json({ ok: true, count });
 });
 
+// ── Products catalogue ────────────────────────────────────────────────────
+
+// GET all products visible to this org (global + org-specific)
+router.get('/products/:orgId', async (req, res) => {
+  const supabase = userScopedClient(req);
+  const { orgId } = req.params;
+  const { data, error } = await supabase
+    .from('products')
+    .select('id,name,brand,category_l1,category_l2,food_group,default_unit,default_store,org_id')
+    .or(`org_id.is.null,org_id.eq.${orgId}`)
+    .eq('active', true)
+    .order('category_l1').order('category_l2').order('name');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST create a custom org-specific product
+router.post('/products', requireRole('admin', 'vedouci'), async (req, res) => {
+  const supabase = userScopedClient(req);
+  const orgId = req.user?.org_id;
+  const { name, brand, category_l1, category_l2, food_group, default_unit, default_store } = req.body;
+  if (!name || !category_l1 || !category_l2 || !food_group || !default_unit)
+    return res.status(400).json({ error: 'name, category_l1, category_l2, food_group, default_unit required' });
+  const { data, error } = await supabase.from('products').insert({
+    org_id: orgId, name, brand, category_l1, category_l2, food_group, default_unit, default_store
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'product.create', entity: 'products',
+    description: `Produkt přidán: ${name}`, after_json: data });
+  res.json(data);
+});
+
+// DELETE a custom product (org-specific only, not global)
+router.delete('/products/:id', requireRole('admin', 'vedouci'), async (req, res) => {
+  const supabase = userScopedClient(req);
+  const { id } = req.params;
+  const { error } = await supabase.from('products')
+    .update({ active: false }).eq('id', id).not('org_id', 'is', null);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 // ── Clear all org data (admin only) ──────────────────────────
 // Deletes all inventory_ledger, attendance, menus, shopping_lists
 // rows for the org. Used by the "Smazat všechna data" button.
