@@ -566,7 +566,7 @@ function applyRezervaAndBuild() {
         price: 0,
         store: '',
         promo: false,
-        source: 'norms',
+        source: 'shopping',
       };
     })
     .filter(item => item.qty > 0); // nothing to buy this round — fully covered by stock
@@ -870,7 +870,7 @@ async function warehouseFromNorms() {
       store: 'Z výpočtu surovin',
       promo: false,
       week_key: weekKey,
-      source: 'norms',
+      source: 'shopping',
     };
   });
 

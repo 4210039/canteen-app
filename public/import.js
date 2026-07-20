@@ -1458,7 +1458,7 @@ function importOffers(data, val, errors) {
       price: parseFloat(val(row, 'price')) || 0,
       store: val(row, 'store') || 'Import',
       promo: false,
-      source: 'import',
+      source: 'manual',
     };
 
     const key = existingKey(item);
@@ -1529,7 +1529,7 @@ async function importWarehouse(data, val, errors) {
       promo:     false,
       date:      isoDate,
       weekKey:   typeof getWeekKey === 'function' ? getWeekKey(date) : '',
-      source:    'import',
+      source:    'manual',
     };
 
     const key = existingKey(entry);
@@ -1547,7 +1547,8 @@ async function importWarehouse(data, val, errors) {
     // Write to Supabase FIRST — the warehouse view only updates once this
     // succeeds, so a failed import never shows data that isn't really saved.
     const orgId = window.SYNC.ORG_ID;
-    const toRow = e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: e.source });
+    const VALID_SOURCES = new Set(['shopping','manual','consumption']);
+    const toRow = e => ({ org_id: orgId, name: e.name, food_group: e.foodGroup, qty: e.qty, unit: e.unit, grams: e.grams, price: e.price, store: e.store, promo: e.promo, week_key: e.weekKey, source: VALID_SOURCES.has(e.source) ? e.source : 'manual' });
     const inEntries  = newEntries.filter(e => e.type === 'in');
     const outEntries = newEntries.filter(e => e.type === 'out');
 
