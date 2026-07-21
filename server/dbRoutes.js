@@ -16,7 +16,7 @@
  */
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
-const { isDbConfigured } = require('./db/supabaseClient');
+const { getSupabase, isDbConfigured } = require('./db/supabaseClient');
 const { requireAuth, requireRole } = require('./authMiddleware');
 const { audit } = require('./audit');
 
@@ -530,7 +530,7 @@ router.delete('/ledger/:orgId/all', requireRole('admin', 'vedouci'), async (req,
 
 // GET all products visible to this org (global + org-specific)
 router.get('/products/:orgId', requireAuth, async (req, res) => {
-  const supabase = userScopedClient(req);
+  const supabase = getSupabase(); // service role — bypass RLS for catalogue read
   const { orgId } = req.params;
   const { data, error } = await supabase
     .from('products')
