@@ -263,6 +263,12 @@
         <button class="btn btn-secondary btn-sm" id="btnAddCustomItem">+ Přidat vlastní položku</button>
       </div>
 
+      <!-- Saved custom products — quick-add chips loaded from DB -->
+      <div id="savedCustomProductsPanel" style="margin-bottom:.75rem">
+        <p class="muted" style="font-size:.8rem;margin-bottom:.35rem">⭐ Uložené vlastní položky (kliknutím přidáte do seznamu):</p>
+        <div id="savedCustomProducts" class="saved-products-chips"></div>
+      </div>
+
       <!-- Custom item quick-add form -->
       <div id="customItemForm" class="card form-card hidden">
         <div class="form-grid">
@@ -294,7 +300,11 @@
             <input type="text" id="custItemSupplier" placeholder="např. Farma Novák" />
           </div>
         </div>
-        <div class="form-actions">
+        <div class="form-actions" style="flex-wrap:wrap;gap:.5rem">
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.88rem;cursor:pointer;margin-right:auto">
+            <input type="checkbox" id="custItemSaveToDb" />
+            💾 Uložit pro příště
+          </label>
           <button class="btn btn-primary" id="btnSaveCustomItem">Přidat do seznamu</button>
           <button class="btn btn-ghost" id="btnCancelCustomItem">Zrušit</button>
         </div>

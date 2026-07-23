@@ -33,6 +33,7 @@ const STATE = {
   ledger: [],                // unified income/outcome transactions (see model above)
   cart: [],                  // current shopping list draft, built from norms calc (session-only, not persisted to DB)
   products: [],              // product catalogue cache [{id,name,brand,category_l1,category_l2,food_group,default_unit,default_store}]
+  savedCustomProducts: [],   // persistent custom products from DB, shown as quick-add chips in Nákup
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -684,6 +685,67 @@ function updateCartTotal() {
 }
 
 // ── Custom supplier item ────────────────────────────────────
+async function loadSavedCustomProducts() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  try {
+    const products = await dbGet(`/api/db/custom-products/${orgId}`);
+    STATE.savedCustomProducts = products || [];
+    renderSavedCustomProducts();
+  } catch (e) {
+    console.warn('Nepodařilo se načíst vlastní produkty:', e);
+    STATE.savedCustomProducts = [];
+  }
+}
+
+function renderSavedCustomProducts() {
+  const container = document.getElementById('savedCustomProducts');
+  if (!container) return;
+  const products = STATE.savedCustomProducts || [];
+  if (!products.length) {
+    container.innerHTML = '<p class="muted" style="font-size:.82rem;margin:0">Žádné uložené položky. Po přidání se zde zobrazí pro rychlé použití.</p>';
+    return;
+  }
+  container.innerHTML = products.map(p => `
+    <div class="saved-product-chip" data-id="${escHtml(p.id)}">
+      <button class="chip-add-btn" title="Přidat do seznamu" onclick="addSavedProductToCart('${escHtml(p.id)}')">
+        <span class="chip-name">${escHtml(p.name)}</span>
+        <span class="chip-meta">${p.qty} ${escHtml(p.unit)}${p.price ? ' · ' + p.price + ' Kč' : ''}</span>
+      </button>
+      <button class="chip-delete-btn" title="Odstranit uložený produkt" onclick="deleteSavedProduct('${escHtml(p.id)}')">×</button>
+    </div>
+  `).join('');
+}
+
+function addSavedProductToCart(id) {
+  const p = (STATE.savedCustomProducts || []).find(x => x.id === id);
+  if (!p) return;
+  STATE.cart.push({
+    id: 'custom_' + Date.now(),
+    foodGroup: p.food_group || null,
+    name: p.name,
+    qty: p.qty,
+    unit: p.unit,
+    price: p.price,
+    store: p.supplier || 'Vlastní dodavatel',
+    promo: false,
+    source: 'custom',
+  });
+  renderShoppingList();
+  toast(`„${p.name}" přidáno do nákupního seznamu.`, 'success');
+}
+
+async function deleteSavedProduct(id) {
+  try {
+    await dbDelete(`/api/db/custom-products/${id}`);
+    STATE.savedCustomProducts = (STATE.savedCustomProducts || []).filter(p => p.id !== id);
+    renderSavedCustomProducts();
+    toast('Produkt odstraněn.', 'success');
+  } catch (e) {
+    toast('Nepodařilo se odstranit produkt.', 'error');
+  }
+}
+
 function initCustomItemForm() {
   const groupSelect = document.getElementById('custItemGroup');
   if (groupSelect) {
@@ -694,17 +756,19 @@ function initCustomItemForm() {
 
   document.getElementById('btnAddCustomItem')?.addEventListener('click', () => {
     document.getElementById('customItemForm').classList.remove('hidden');
+    document.getElementById('custItemName')?.focus();
   });
   document.getElementById('btnCancelCustomItem')?.addEventListener('click', () => {
     document.getElementById('customItemForm').classList.add('hidden');
   });
-  document.getElementById('btnSaveCustomItem')?.addEventListener('click', () => {
-    const name  = document.getElementById('custItemName').value.trim();
-    const group = document.getElementById('custItemGroup').value || null;
-    const qty   = parseFloat(document.getElementById('custItemQty').value) || 1;
-    const unit  = document.getElementById('custItemUnit').value;
-    const price = parseFloat(document.getElementById('custItemPrice').value) || 0;
+  document.getElementById('btnSaveCustomItem')?.addEventListener('click', async () => {
+    const name     = document.getElementById('custItemName').value.trim();
+    const group    = document.getElementById('custItemGroup').value || null;
+    const qty      = parseFloat(document.getElementById('custItemQty').value) || 1;
+    const unit     = document.getElementById('custItemUnit').value;
+    const price    = parseFloat(document.getElementById('custItemPrice').value) || 0;
     const supplier = document.getElementById('custItemSupplier').value.trim() || 'Vlastní dodavatel';
+    const saveToDb = document.getElementById('custItemSaveToDb')?.checked;
 
     if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
 
@@ -716,10 +780,28 @@ function initCustomItemForm() {
       promo: false,
       source: 'custom',
     });
-      renderShoppingList();
+    renderShoppingList();
+
+    if (saveToDb) {
+      try {
+        const saved = await dbPost('/api/db/custom-products', {
+          org_id: window.SYNC.ORG_ID,
+          name, food_group: group, qty, unit, price,
+          supplier: supplier !== 'Vlastní dodavatel' ? supplier : null,
+        });
+        STATE.savedCustomProducts = [...(STATE.savedCustomProducts || []), saved];
+        renderSavedCustomProducts();
+        toast(`„${name}" přidáno a uloženo pro příště.`, 'success');
+      } catch (e) {
+        toast(`„${name}" přidáno, ale uložení selhalo: ${e.message}`, 'warning');
+      }
+    } else {
+      toast(`Položka „${name}" přidána do nákupního seznamu.`, 'success');
+    }
+
     document.getElementById('customItemForm').classList.add('hidden');
     ['custItemName','custItemQty','custItemPrice','custItemSupplier'].forEach(id => document.getElementById(id).value = '');
-    toast(`Položka „${name}" přidána do nákupního seznamu.`, 'success');
+    if (document.getElementById('custItemSaveToDb')) document.getElementById('custItemSaveToDb').checked = false;
   });
 }
 
@@ -1617,6 +1699,15 @@ function authedFetch(path, options = {}) {
   });
 }
 
+async function dbGet(path) {
+  const res = await authedFetch(path, { method: 'GET' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `GET ${path}: HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
 async function dbPost(path, body) {
   const res = await authedFetch(path, { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) {
@@ -1798,6 +1889,7 @@ async function showApp() {
 
   const ok = await refreshAllFromCloud();
   renderAll();
+  loadSavedCustomProducts();
   if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
   if (STATE.currentMenu?.fetchedAt) {
     document.getElementById('lastCheck').textContent =

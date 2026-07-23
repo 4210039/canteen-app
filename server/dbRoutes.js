@@ -593,4 +593,42 @@ router.delete('/clear/:orgId', requireRole('admin', 'vedouci'), async (req, res)
   res.json({ ok: true });
 });
 
+// ══════════════════════════════════════════════════════════
+// CUSTOM PRODUCTS — persistent user-defined shopping items
+// ══════════════════════════════════════════════════════════
+
+router.get('/custom-products/:orgId', async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = userScopedClient(req);
+  const { data, error } = await supabase
+    .from('custom_products')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('name', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+router.post('/custom-products', async (req, res) => {
+  const { org_id, name, food_group, qty, unit, price, supplier } = req.body;
+  if (!org_id || !name) return res.status(400).json({ error: 'org_id and name are required' });
+  const supabase = userScopedClient(req);
+  const { data, error } = await supabase
+    .from('custom_products')
+    .insert([{ org_id, name, food_group: food_group || null, qty: qty || 1, unit: unit || 'ks', price: price || 0, supplier: supplier || null }])
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'custom_product.create', entity: 'custom_products', description: `Přidán vlastní produkt: ${name}` });
+  res.json(data);
+});
+
+router.delete('/custom-products/:id', async (req, res) => {
+  const { id } = req.params;
+  const supabase = userScopedClient(req);
+  const { error } = await supabase.from('custom_products').delete().eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 module.exports = router;

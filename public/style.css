@@ -240,6 +240,34 @@ input, select { font: inherit; }
   background: var(--green-pale); border-radius: 8px; font-size: .9rem;
 }
 
+/* ── Saved custom product chips ───────────────────────────── */
+.saved-products-chips {
+  display: flex; flex-wrap: wrap; gap: .4rem; min-height: 1.5rem;
+}
+.saved-product-chip {
+  display: inline-flex; align-items: stretch;
+  border: 1.5px solid var(--primary); border-radius: 20px;
+  overflow: hidden; font-size: .82rem;
+  background: var(--surface);
+  transition: box-shadow .15s;
+}
+.saved-product-chip:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+.chip-add-btn {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: .3rem .7rem; background: none; border: none; cursor: pointer;
+  color: var(--primary); text-align: left; line-height: 1.25;
+}
+.chip-add-btn:hover { background: var(--primary-pale, #e8f0fe); }
+.chip-name { font-weight: 600; }
+.chip-meta { font-size: .75rem; color: var(--ink-mid); }
+.chip-delete-btn {
+  padding: 0 .55rem; background: none; border: none;
+  border-left: 1.5px solid var(--border);
+  cursor: pointer; color: var(--ink-mid); font-size: 1rem; line-height: 1;
+  transition: background .15s, color .15s;
+}
+.chip-delete-btn:hover { background: var(--red-pale, #fdecea); color: var(--danger, #c62828); }
+
 /* ── Warehouse table ──────────────────────────────────────── */
 .wh-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
 .wh-table th {
