@@ -501,14 +501,23 @@ function renderNakupGrid(rows) {
   const { rates: rateByRowKey } = computeConsumptionRatePerRowKey(28);
   const bufferDays = getYearEndTaperedBufferDays();
 
+  // Build subcategory map from loaded categories: food_group -> [category_l2, ...]
+  const subsByGroup = {};
+  for (const cat of (STATE.products || [])) {
+    if (!cat.food_group || !cat.category_l2) continue;
+    if (!subsByGroup[cat.food_group]) subsByGroup[cat.food_group] = [];
+    if (!subsByGroup[cat.food_group].includes(cat.category_l2))
+      subsByGroup[cat.food_group].push(cat.category_l2);
+  }
+
   grid.innerHTML = rows.map(r => {
     const inStockGrams = Math.max(0, stockByRowKey[r.rowKey] || 0);
-    const inStockDisplay = inStockGrams >= 1000 ? `${(inStockGrams / 1000).toFixed(2)} kg` : `${Math.round(inStockGrams)} g`;
+    const inStockDisplay = inStockGrams >= 1000
+      ? `${(inStockGrams / 1000).toFixed(2)} kg` : `${Math.round(inStockGrams)} g`;
 
-    let baseNeedGrams;
-    let needLabel;
+    let baseNeedGrams, needLabel;
     if (smartOn) {
-      const rate = rateByRowKey[r.rowKey] || (r.totalGrams / 7); // fallback: this week's norm spread over 7 days
+      const rate = rateByRowKey[r.rowKey] || (r.totalGrams / 7);
       const target = rate * bufferDays;
       baseNeedGrams = Math.max(0, target - inStockGrams);
       needLabel = `cíl zásoby na ${bufferDays} dní: ${target >= 1000 ? (target/1000).toFixed(1)+' kg' : Math.round(target)+' g'}`;
@@ -516,83 +525,143 @@ function renderNakupGrid(rows) {
       baseNeedGrams = Math.max(0, r.totalGrams - inStockGrams);
       needLabel = `týdenní potřeba: ${r.totalGrams >= 1000 ? (r.totalGrams/1000).toFixed(2)+' kg' : r.totalGrams+' g'}`;
     }
+    const toBuyDisplay = baseNeedGrams >= 1000
+      ? `${(baseNeedGrams / 1000).toFixed(2)} kg` : `${Math.round(baseNeedGrams)} g`;
 
-    const toBuyDisplay = baseNeedGrams >= 1000 ? `${(baseNeedGrams / 1000).toFixed(2)} kg` : `${Math.round(baseNeedGrams)} g`;
+    const subs = subsByGroup[r.key] || [];
 
-    return `<div class="rezerva-row" data-rowkey="${escHtml(r.rowKey)}" data-base-grams="${baseNeedGrams}">
-      <div class="rezerva-label">
-        <span class="rezerva-name">${escHtml(r.label)}</span>
-        <span class="muted rezerva-norm">${escHtml(needLabel)} · na skladě: ${inStockDisplay}</span>
-      </div>
-      <div class="rezerva-tobuy">Navrhujeme koupit: <strong>${toBuyDisplay}</strong></div>
-      <label class="rezerva-input-wrap">
-        <span class="muted" style="font-size:.72rem">rezerva navíc:</span>
-        <input type="number" class="rezerva-val-input" data-key="${escHtml(r.rowKey)}" value="0" min="0" step="1" />
-        <select class="rezerva-unit-select" data-key="${escHtml(r.rowKey)}">
-          ${UNIT_OPTIONS.map(u => `<option value="${u}">${u}</option>`).join('')}
-        </select>
-      </label>
-    </div>`;
+    // ── Category header ────────────────────────────────────
+    const header = `
+      <div class="rezerva-group-header">
+        <span class="rezerva-group-name">${escHtml(r.label)}</span>
+        <span class="muted rezerva-norm">${escHtml(needLabel)} &nbsp;·&nbsp; na skladě: ${inStockDisplay} &nbsp;·&nbsp; celkem koupit: <strong class="rezerva-group-total">${toBuyDisplay}</strong></span>
+      </div>`;
+
+    if (subs.length) {
+      // ── Subcategory rows ─────────────────────────────────
+      const subRows = subs.map(sub => {
+        const subKey = `${r.rowKey}__${sub}`;
+        return `
+          <div class="rezerva-row rezerva-subrow" data-rowkey="${escHtml(r.rowKey)}" data-subkey="${escHtml(subKey)}" data-base-grams="${baseNeedGrams}" data-sub="${escHtml(sub)}">
+            <div class="rezerva-label">
+              <span class="rezerva-name rezerva-subname">${escHtml(sub)}</span>
+            </div>
+            <label class="rezerva-input-wrap">
+              <span class="muted" style="font-size:.72rem">množství:</span>
+              <input type="number" class="rezerva-val-input rezerva-sub-input" data-key="${escHtml(subKey)}" data-rowkey="${escHtml(r.rowKey)}" value="0" min="0" step="0.1" />
+              <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
+                ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
+              </select>
+            </label>
+          </div>`;
+      }).join('');
+      return `<div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}">${header}${subRows}</div>`;
+    }
+
+    // ── Fallback: no subcategories — single row ────────────
+    return `
+      <div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}">
+        ${header}
+        <div class="rezerva-row" data-rowkey="${escHtml(r.rowKey)}" data-base-grams="${baseNeedGrams}">
+          <div class="rezerva-label">
+            <span class="rezerva-name">${escHtml(r.label)}</span>
+          </div>
+          <div class="rezerva-tobuy">Navrhujeme koupit: <strong>${toBuyDisplay}</strong></div>
+          <label class="rezerva-input-wrap">
+            <span class="muted" style="font-size:.72rem">rezerva navíc:</span>
+            <input type="number" class="rezerva-val-input" data-key="${escHtml(r.rowKey)}" value="0" min="0" step="1" />
+            <select class="rezerva-unit-select" data-key="${escHtml(r.rowKey)}">
+              ${UNIT_OPTIONS.map(u => `<option value="${u}">${u}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+      </div>`;
   }).join('');
 }
 
 /**
- * Nákup tab: read per-category reserve inputs (% or absolute unit), build
- * cart from (need − stock) + reserve, render shopping list.
+ * Nákup tab: read per-category/subcategory inputs, build cart, render shopping list.
+ * If subcategory rows exist for a food group, each subcategory with qty > 0 becomes
+ * its own cart item. Groups without subcategories fall back to the single-row behaviour.
  */
 function applyRezervaAndBuild() {
   const calc = window.LAST_CALC;
   if (!calc || !calc.results?.length) return;
 
-  // Collect per-category buffer values + their chosen unit
-  const buffers = {}; // rowKey -> { value, unit }
-  document.querySelectorAll('.rezerva-val-input').forEach(input => {
-    const key = input.dataset.key;
-    const unitSelect = document.querySelector(`.rezerva-unit-select[data-key="${CSS.escape(key)}"]`);
-    buffers[key] = { value: Math.max(0, parseFloat(input.value) || 0), unit: unitSelect?.value || '%' };
-  });
+  const cartItems = [];
 
-  // base (stock-adjusted) grams per row, computed by renderNakupGrid and stashed in the DOM
-  const baseGramsByRowKey = {};
-  document.querySelectorAll('.rezerva-row').forEach(row => {
-    baseGramsByRowKey[row.dataset.rowkey] = parseFloat(row.dataset.baseGrams) || 0;
-  });
+  for (const r of calc.results.filter(r => r.totalGrams > 0)) {
+    // Check if this group has subcategory rows
+    const subRows = document.querySelectorAll(`.rezerva-subrow[data-rowkey="${CSS.escape(r.rowKey)}"]`);
 
-  STATE.cart = calc.results
-    .filter(r => r.totalGrams > 0)
-    .map(r => {
-      const baseGrams = baseGramsByRowKey[r.rowKey] ?? r.totalGrams;
-      const buf = buffers[r.rowKey] || { value: 0, unit: '%' };
+    if (subRows.length) {
+      // ── Subcategory mode: one cart item per sub with qty > 0 ──
+      subRows.forEach(row => {
+        const subKey = row.dataset.subkey;
+        const subName = row.dataset.sub;
+        const input = row.querySelector('.rezerva-sub-input');
+        const unitSel = row.querySelector('.rezerva-unit-select');
+        const qty = parseFloat(input?.value) || 0;
+        if (qty <= 0) return; // user left it at 0 — skip
+        const unit = unitSel?.value || 'kg';
+        cartItems.push({
+          id: 'sub_' + subKey + '_' + Date.now(),
+          foodGroup: r.key,
+          name: subName,
+          qty,
+          unit,
+          neededGrams: null,
+          bufferPct: null,
+          bufferAbsolute: null,
+          price: 0,
+          store: '',
+          promo: false,
+          source: 'shopping',
+        });
+      });
+    } else {
+      // ── Fallback: single row with rezerva % or absolute ──
+      const input = document.querySelector(`.rezerva-val-input[data-key="${CSS.escape(r.rowKey)}"]`);
+      const unitSel = document.querySelector(`.rezerva-unit-select[data-key="${CSS.escape(r.rowKey)}"]`);
+      const bufVal = Math.max(0, parseFloat(input?.value) || 0);
+      const bufUnit = unitSel?.value || '%';
+      const baseGrams = parseFloat(
+        document.querySelector(`.rezerva-row[data-rowkey="${CSS.escape(r.rowKey)}"]`)?.dataset.baseGrams
+      ) || r.totalGrams;
+
       let grams;
-      if (buf.unit === '%') {
-        grams = baseGrams * (1 + buf.value / 100);
+      if (bufUnit === '%') {
+        grams = baseGrams * (1 + bufVal / 100);
       } else {
-        grams = baseGrams + toGrams(buf.value, buf.unit);
+        grams = baseGrams + toGrams(bufVal, bufUnit);
       }
       grams = Math.max(0, grams);
-      return {
+      if (grams <= 0) continue;
+
+      cartItems.push({
         id: 'fg_' + r.rowKey,
         foodGroup: r.key,
         name: r.label,
         qty: grams >= 1000 ? +(grams / 1000).toFixed(2) : +grams.toFixed(0),
         unit: grams >= 1000 ? 'kg' : 'g',
         neededGrams: baseGrams,
-        bufferPct: buf.unit === '%' ? buf.value : null,
-        bufferAbsolute: buf.unit !== '%' ? `${buf.value} ${buf.unit}` : null,
+        bufferPct: bufUnit === '%' ? bufVal : null,
+        bufferAbsolute: bufUnit !== '%' ? `${bufVal} ${bufUnit}` : null,
         price: 0,
         store: '',
         promo: false,
         source: 'shopping',
-      };
-    })
-    .filter(item => item.qty > 0); // nothing to buy this round — fully covered by stock
+      });
+    }
+  }
 
+  STATE.cart = cartItems;
   document.getElementById('nakupRezervaPanel').classList.add('hidden');
   renderShoppingList();
   if (!STATE.cart.length) {
-    toast('Sklad pokrývá vše, co je potřeba — není co nakupovat. 🎉', 'success');
+    toast('Zadejte množství u podkategorií které chcete nakoupit. 🛒', 'info');
   } else {
-    toast('Nákupní seznam vytvořen — sklad byl zohledněn!', 'success');
+    toast('Nákupní seznam vytvořen!', 'success');
   }
   setStatus('ok', 'Nákupní seznam připraven');
 }
