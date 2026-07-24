@@ -552,6 +552,9 @@ function renderNakupGrid(rows) {
               <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
                 ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
               </select>
+              <button class="rezerva-del-btn" title="Odstranit podkategorii" onclick="nakupDeleteSubcategory(this,'${escHtml(r.key)}','${escHtml(sub)}')">
+                <i class="ti ti-trash" aria-hidden="true"></i>
+              </button>
             </label>
           </div>`;
       }).join('');
@@ -639,8 +642,15 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
       <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
         ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
       </select>
+      <button class="rezerva-del-btn" title="Odstranit podkategorii"
+              onclick="nakupDeleteSubcategory(this,'${escHtml(foodGroup)}','${escHtml(name)}')">
+        <i class="ti ti-trash" aria-hidden="true"></i>
+      </button>
     </label>`;
-  group.insertBefore(newRow, addForm);
+
+  // Insert before the trigger button so add-row stays last
+  const trigger = document.getElementById(`addTrigger_${safeKey}`);
+  group.insertBefore(newRow, trigger);
 
   // Reset form
   input.value = '';
@@ -668,6 +678,29 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
     toast(`Podkategorie „${name}" přidána a uložena.`, 'success');
   } catch (e) {
     toast(`„${name}" přidáno do seznamu, ale uložení selhalo: ${e.message}`, 'warning');
+  }
+}
+
+async function nakupDeleteSubcategory(btn, foodGroup, subName) {
+  const row = btn.closest('.rezerva-subrow');
+  if (!row) return;
+
+  // Remove from DOM immediately
+  row.remove();
+
+  // Remove from STATE.products cache
+  STATE.products = (STATE.products || []).filter(p =>
+    !(p.food_group === foodGroup && p.category_l2 === subName)
+  );
+
+  // Delete from DB — find the product by food_group + category_l2 for this org
+  try {
+    const orgId = window.SYNC?.ORG_ID;
+    const res = await authedFetch(`/api/db/products/by-category?org_id=${encodeURIComponent(orgId)}&food_group=${encodeURIComponent(foodGroup)}&category_l2=${encodeURIComponent(subName)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.status);
+    toast(`Podkategorie „${subName}" odstraněna.`, 'success');
+  } catch (e) {
+    toast(`Odstraněno z pohledu, ale smazání z DB selhalo: ${e.message}`, 'warning');
   }
 }
 

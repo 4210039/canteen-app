@@ -570,6 +570,21 @@ router.post('/products', requireRole('admin', 'vedouci'), async (req, res) => {
   res.json(data);
 });
 
+// DELETE subcategory by food_group + category_l2 (org-specific only)
+router.delete('/products/by-category', requireAuth, async (req, res) => {
+  const { org_id, food_group, category_l2 } = req.query;
+  if (!org_id || !food_group || !category_l2)
+    return res.status(400).json({ error: 'org_id, food_group, category_l2 required' });
+  const supabase = getSupabase();
+  const { error } = await supabase.from('products')
+    .update({ active: false })
+    .eq('org_id', org_id)
+    .eq('food_group', food_group)
+    .eq('category_l2', category_l2);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 // DELETE a custom product (org-specific only, not global)
 router.delete('/products/:id', requireRole('admin', 'vedouci'), async (req, res) => {
   const supabase = userScopedClient(req);
