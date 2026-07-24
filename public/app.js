@@ -555,12 +555,15 @@ function renderNakupGrid(rows) {
             </label>
           </div>`;
       }).join('');
-      return `<div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}">${header}${subRows}</div>`;
+      return `<div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}" data-foodgroup="${escHtml(r.key)}">
+        ${header}${subRows}
+        ${addSubcategoryRow(r.rowKey, r.key)}
+      </div>`;
     }
 
-    // ── Fallback: no subcategories — single row ────────────
+    // ── Fallback: no subcategories — single row + add button ──
     return `
-      <div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}">
+      <div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}" data-foodgroup="${escHtml(r.key)}">
         ${header}
         <div class="rezerva-row" data-rowkey="${escHtml(r.rowKey)}" data-base-grams="${baseNeedGrams}">
           <div class="rezerva-label">
@@ -575,8 +578,97 @@ function renderNakupGrid(rows) {
             </select>
           </label>
         </div>
+        ${addSubcategoryRow(r.rowKey, r.key)}
       </div>`;
   }).join('');
+}
+
+// Returns HTML for the inline "+ Přidat podkategorii" row at the bottom of a group
+function addSubcategoryRow(rowKey, foodGroup) {
+  const safeKey = rowKey.replace(/[^a-z0-9_]/gi, '_');
+  return `
+    <div class="rezerva-add-row" id="addTrigger_${safeKey}"
+         onclick="nakupToggleAddForm('${safeKey}')">
+      <i class="ti ti-plus" aria-hidden="true"></i>
+      <span>Přidat podkategorii</span>
+    </div>
+    <div class="rezerva-add-form hidden" id="addForm_${safeKey}">
+      <input type="text" class="rezerva-add-input" id="addInput_${safeKey}"
+             placeholder="Název podkategorie, např. Jehněčí"
+             onkeydown="if(event.key==='Enter')nakupSaveSubcategory('${safeKey}','${rowKey}','${foodGroup}')" />
+      <button class="btn btn-primary btn-sm" onclick="nakupSaveSubcategory('${safeKey}','${rowKey}','${foodGroup}')">Přidat</button>
+      <button class="btn btn-ghost btn-sm" onclick="nakupToggleAddForm('${safeKey}')">Zrušit</button>
+    </div>`;
+}
+
+function nakupToggleAddForm(safeKey) {
+  const trigger = document.getElementById(`addTrigger_${safeKey}`);
+  const form    = document.getElementById(`addForm_${safeKey}`);
+  const hidden  = form.classList.contains('hidden');
+  form.classList.toggle('hidden', !hidden);
+  trigger.classList.toggle('hidden', hidden);
+  if (hidden) document.getElementById(`addInput_${safeKey}`)?.focus();
+}
+
+async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
+  const input = document.getElementById(`addInput_${safeKey}`);
+  const name  = input?.value.trim();
+  if (!name) { toast('Zadejte název podkategorie.', 'error'); return; }
+
+  // Optimistically insert a new subrow into the DOM immediately
+  const group = document.querySelector(`.rezerva-group[data-groupkey="${CSS.escape(rowKey)}"]`);
+  const addForm = document.getElementById(`addForm_${safeKey}`);
+  const subKey  = `${rowKey}__${name}`;
+  const baseGrams = parseFloat(group?.querySelector('.rezerva-subrow, .rezerva-row')?.dataset.baseGrams) || 0;
+
+  const newRow = document.createElement('div');
+  newRow.className = 'rezerva-row rezerva-subrow';
+  newRow.dataset.rowkey   = rowKey;
+  newRow.dataset.subkey   = subKey;
+  newRow.dataset.baseGrams = baseGrams;
+  newRow.dataset.sub      = name;
+  newRow.innerHTML = `
+    <div class="rezerva-label">
+      <span class="rezerva-name rezerva-subname">${escHtml(name)}</span>
+    </div>
+    <label class="rezerva-input-wrap">
+      <span class="muted" style="font-size:.72rem">množství:</span>
+      <input type="number" class="rezerva-val-input rezerva-sub-input"
+             data-key="${escHtml(subKey)}" data-rowkey="${escHtml(rowKey)}"
+             value="0" min="0" step="0.1" />
+      <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
+        ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
+      </select>
+    </label>`;
+  group.insertBefore(newRow, addForm);
+
+  // Reset form
+  input.value = '';
+  nakupToggleAddForm(safeKey);
+
+  // Persist to DB so it appears next time
+  try {
+    const orgId = window.SYNC?.ORG_ID;
+    await dbPost('/api/db/products', {
+      org_id: orgId,
+      name,
+      category_l1: window.NORMS?.foodGroups?.[foodGroup]?.label || foodGroup,
+      category_l2: name,
+      food_group: foodGroup,
+      default_unit: 'kg',
+      active: true,
+    });
+    // Update local cache so combobox also picks it up
+    STATE.products = [...(STATE.products || []), {
+      category_l1: window.NORMS?.foodGroups?.[foodGroup]?.label || foodGroup,
+      category_l2: name,
+      food_group: foodGroup,
+      default_unit: 'kg',
+    }];
+    toast(`Podkategorie „${name}" přidána a uložena.`, 'success');
+  } catch (e) {
+    toast(`„${name}" přidáno do seznamu, ale uložení selhalo: ${e.message}`, 'warning');
+  }
 }
 
 /**

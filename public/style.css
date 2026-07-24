@@ -1005,6 +1005,30 @@ input, select { font: inherit; }
 .rezerva-row:last-child { border-bottom: none; }
 .rezerva-subrow { background: var(--white); }
 .rezerva-subrow:hover { background: var(--green-pale, #f0faf4); }
+.rezerva-add-row {
+  display: flex; align-items: center; gap: .4rem;
+  padding: .5rem .85rem;
+  font-size: .8rem; color: var(--text-accent, var(--primary));
+  cursor: pointer; border-top: 0.5px dashed var(--border);
+  background: var(--surface-1);
+  transition: background .15s;
+}
+.rezerva-add-row:hover { background: var(--bg-accent, #e8f0fe); }
+.rezerva-add-row .ti { font-size: 14px; }
+.rezerva-add-form {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .6rem .85rem;
+  background: var(--surface-1);
+  border-top: 0.5px solid var(--border-accent, var(--primary));
+}
+.rezerva-add-form.hidden { display: none; }
+.rezerva-add-input {
+  flex: 1; height: 32px; padding: 0 .6rem;
+  border: 1.5px solid var(--border-accent, var(--primary));
+  border-radius: var(--radius); font-size: .85rem;
+  background: var(--surface-2); color: var(--text-primary);
+}
+.rezerva-add-input::placeholder { color: var(--text-muted); }
 .rezerva-label {
   display: flex; flex-direction: column; gap: .1rem; flex: 1; min-width: 180px;
 }
