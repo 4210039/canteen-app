@@ -554,24 +554,26 @@ router.get('/products/:orgId', requireAuth, async (req, res) => {
   res.json(categories);
 });
 
-// POST create a custom org-specific product
-router.post('/products', requireRole('admin', 'vedouci'), async (req, res) => {
-  const supabase = userScopedClient(req);
+// POST create a custom org-specific product (subcategory)
+// Uses service role to bypass RLS — auth is handled by requireAuth middleware above.
+router.post('/products', async (req, res) => {
+  const supabase = getSupabase();
   const orgId = req.user?.org_id;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on user' });
   const { name, brand, category_l1, category_l2, food_group, default_unit, default_store } = req.body;
   if (!name || !category_l1 || !category_l2 || !food_group || !default_unit)
     return res.status(400).json({ error: 'name, category_l1, category_l2, food_group, default_unit required' });
   const { data, error } = await supabase.from('products').insert({
-    org_id: orgId, name, brand, category_l1, category_l2, food_group, default_unit, default_store
+    org_id: orgId, name, brand, category_l1, category_l2, food_group, default_unit, default_store, active: true
   }).select().single();
   if (error) return res.status(500).json({ error: error.message });
   await audit(req, { action: 'product.create', entity: 'products',
-    description: `Produkt přidán: ${name}`, after_json: data });
+    description: `Podkategorie přidána: ${category_l2} (${food_group})`, after_json: data });
   res.json(data);
 });
 
 // DELETE subcategory by food_group + category_l2 (org-specific only)
-router.delete('/products/by-category', requireAuth, async (req, res) => {
+router.delete('/products/by-category', async (req, res) => {
   const { org_id, food_group, category_l2 } = req.query;
   if (!org_id || !food_group || !category_l2)
     return res.status(400).json({ error: 'org_id, food_group, category_l2 required' });

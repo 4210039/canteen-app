@@ -1006,12 +1006,12 @@ input, select { font: inherit; }
 .rezerva-subrow { background: var(--white); }
 .rezerva-subrow:hover { background: var(--green-pale, #f0faf4); }
 .rezerva-del-btn {
-  padding: 0 .3rem; background: none; border: none; cursor: pointer;
+  padding: 0 .35rem; background: none; border: none; cursor: pointer;
   color: var(--ink-mid, var(--text-secondary)); font-size: .9rem; line-height: 1;
-  opacity: 0; transition: opacity .15s, color .15s;
+  transition: color .15s;
   margin-left: .1rem;
+  flex-shrink: 0;
 }
-.rezerva-subrow:hover .rezerva-del-btn { opacity: 1; }
 .rezerva-del-btn:hover { color: var(--danger, #c62828); }
 .rezerva-add-row {
   display: flex; align-items: center; gap: .4rem;
