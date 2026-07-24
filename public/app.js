@@ -1224,22 +1224,45 @@ function productComboInput(input, listId) {
 
   if (q.length < 1) { list.classList.add('hidden'); list.innerHTML = ''; return; }
 
-  // Search: name, brand, category_l2 all tokenised
-  const matches = STATE.products.filter(p => {
+  // Search catalogue products
+  const catalogueMatches = STATE.products.filter(p => {
     const hay = `${p.name} ${p.brand || ''} ${p.category_l2}`.toLowerCase();
     return q.split(' ').every(tok => hay.includes(tok));
-  }).slice(0, 12); // max 12 suggestions
+  });
+
+  // Search saved custom products — normalise to same shape
+  const customMatches = (STATE.savedCustomProducts || [])
+    .filter(p => p.name.toLowerCase().includes(q))
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      brand: '',
+      category_l2: p.food_group || 'Vlastní',
+      default_unit: p.unit,
+      default_store: p.supplier || '',
+      food_group: p.food_group || '',
+      _isCustom: true,
+      _customData: p,
+    }));
+
+  // Merge: custom first (exact saves), then catalogue; deduplicate by name
+  const seen = new Set();
+  const matches = [...customMatches, ...catalogueMatches].filter(p => {
+    const key = p.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 12);
 
   if (!matches.length) { list.classList.add('hidden'); list.innerHTML = ''; return; }
 
   list.innerHTML = matches.map((p, i) => `
-    <li class="pcl-item" data-idx="${i}" tabindex="-1"
+    <li class="pcl-item${p._isCustom ? ' pcl-item--custom' : ''}" data-idx="${i}" tabindex="-1"
         onmousedown="productComboSelect(event,'${listId}')">
-      <span class="pcl-name">${escHtml(p.name)}</span>
+      <span class="pcl-name">${escHtml(p.name)}${p._isCustom ? ' <em class="pcl-custom-badge">vlastní</em>' : ''}</span>
       <span class="pcl-meta">${escHtml(p.category_l2)} · ${escHtml(p.default_unit)}</span>
     </li>`).join('');
 
-  // Stash matches on the list for selection
   list._matches = matches;
   list.classList.remove('hidden');
 }
@@ -1285,6 +1308,26 @@ function productComboApply(listId, idx) {
   if (!p) return;
   list.classList.add('hidden');
 
+  // --- Custom item form (Nákup) ---
+  if (listId === 'custItemComboList') {
+    document.getElementById('custItemName').value = p.name;
+    if (p._isCustom && p._customData) {
+      const cd = p._customData;
+      const grpSel = document.getElementById('custItemGroup');
+      if (grpSel && cd.food_group) grpSel.value = cd.food_group;
+      const unitSel = document.getElementById('custItemUnit');
+      if (unitSel && cd.unit) unitSel.value = cd.unit;
+      document.getElementById('custItemQty').value = cd.qty || 1;
+      document.getElementById('custItemPrice').value = cd.price || '';
+      document.getElementById('custItemSupplier').value = cd.supplier || '';
+    } else {
+      const grpSel = document.getElementById('custItemGroup');
+      if (grpSel && p.food_group) grpSel.value = p.food_group;
+      const unitSel = document.getElementById('custItemUnit');
+      if (unitSel && p.default_unit) unitSel.value = p.default_unit;
+    }
+  }
+
   // --- Warehouse entry form ---
   if (listId === 'itemComboList') {
     document.getElementById('itemName').value = p.name;
@@ -1317,7 +1360,7 @@ function productComboApply(listId, idx) {
 // Close combo when clicking outside
 document.addEventListener('click', e => {
   document.querySelectorAll('.product-combo-list').forEach(list => {
-    if (!list.contains(e.target) && e.target.id !== 'itemName') {
+    if (!list.contains(e.target) && e.target.id !== 'itemName' && e.target.id !== 'custItemName') {
       list.classList.add('hidden');
     }
   });

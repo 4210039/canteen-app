@@ -274,7 +274,12 @@
         <div class="form-grid">
           <div class="form-group">
             <label>Surovina</label>
-            <input type="text" id="custItemName" placeholder="např. Vejce od místního farmáře" />
+            <div style="position:relative">
+              <input type="text" id="custItemName" placeholder="např. Vejce od místního farmáře" autocomplete="off"
+                     oninput="productComboInput(this,'custItemComboList')"
+                     onkeydown="productComboKey(event,'custItemComboList')" />
+              <ul id="custItemComboList" class="product-combo-list hidden"></ul>
+            </div>
           </div>
           <div class="form-group">
             <label>Skupina potravin</label>

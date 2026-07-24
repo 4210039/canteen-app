@@ -240,6 +240,13 @@ input, select { font: inherit; }
   background: var(--green-pale); border-radius: 8px; font-size: .9rem;
 }
 
+.pcl-item--custom { background: var(--primary-pale, #e8f0fe); }
+.pcl-custom-badge {
+  font-size: .7rem; font-style: normal; font-weight: 600;
+  color: var(--primary); background: #d0e4ff;
+  border-radius: 4px; padding: 1px 5px; margin-left: .3rem;
+}
+
 /* ── Saved custom product chips ───────────────────────────── */
 .saved-products-chips {
   display: flex; flex-wrap: wrap; gap: .4rem; min-height: 1.5rem;
