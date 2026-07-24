@@ -1133,6 +1133,72 @@ function initWarehouseForm() {
 
   document.getElementById('btnConsumeWeek')?.addEventListener('click', consumeWeek);
   document.getElementById('btnWarehouseFromNorms')?.addEventListener('click', warehouseFromNorms);
+
+  // ── Vlastní položka na sklad ─────────────────────────────
+  const custSkladGroup = document.getElementById('custSkladGroup');
+  if (custSkladGroup) {
+    custSkladGroup.innerHTML = `<option value="">— bez skupiny —</option>` +
+      Object.entries(window.NORMS.foodGroups).map(([key, g]) =>
+        `<option value="${key}">${escHtml(g.label)}</option>`).join('');
+  }
+
+  document.getElementById('btnSaveCustomItemSklad')?.addEventListener('click', async () => {
+    const name     = document.getElementById('custSkladName').value.trim();
+    const group    = document.getElementById('custSkladGroup').value || null;
+    const qty      = parseFloat(document.getElementById('custSkladQty').value) || 1;
+    const unit     = document.getElementById('custSkladUnit').value;
+    const price    = parseFloat(document.getElementById('custSkladPrice').value) || 0;
+    const supplier = document.getElementById('custSkladSupplier').value.trim() || 'Vlastní dodavatel';
+    const saveToDb = document.getElementById('custSkladSaveToDb')?.checked;
+
+    if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
+
+    const weekKey = getWeekKey();
+    const saveBtn = document.getElementById('btnSaveCustomItemSklad');
+    saveBtn.disabled = true;
+
+    try {
+      await dbPost('/api/db/ledger/bulk-in', {
+        entries: [{ org_id: window.SYNC.ORG_ID, name, food_group: group, qty, unit,
+          grams: toGrams(qty, unit), price, store: supplier, promo: false,
+          week_key: weekKey, source: 'manual' }]
+      });
+      await loadLedgerFromCloud();
+      renderWarehouse();
+      renderStockBalance();
+      renderFinance();
+
+      if (saveToDb) {
+        try {
+          const saved = await dbPost('/api/db/custom-products', {
+            org_id: window.SYNC.ORG_ID, name, food_group: group, qty, unit, price,
+            supplier: supplier !== 'Vlastní dodavatel' ? supplier : null,
+          });
+          STATE.savedCustomProducts = [...(STATE.savedCustomProducts || []), saved];
+          renderSavedCustomProducts();
+          toast(`„${name}" uloženo na sklad a uloženo pro příště.`, 'success');
+        } catch (e) {
+          toast(`„${name}" uloženo na sklad, ale uložení pro příště selhalo.`, 'warning');
+        }
+      } else {
+        toast(`„${name}" přidáno na sklad!`, 'success');
+      }
+
+      document.getElementById('customItemFormSklad').classList.add('hidden');
+      ['custSkladName','custSkladQty','custSkladPrice','custSkladSupplier'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      if (document.getElementById('custSkladSaveToDb')) document.getElementById('custSkladSaveToDb').checked = false;
+    } catch (err) {
+      toast('Položku se nepodařilo uložit: ' + err.message, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  // Wire custSkladComboList into productComboApply
+  document.getElementById('custSkladName')?.addEventListener('keydown', e =>
+    productComboKey(e, 'custSkladComboList'));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1312,6 +1378,29 @@ function productComboApply(listId, idx) {
   if (!p) return;
   list.classList.add('hidden');
 
+  // --- Vlastní položka Sklad form ---
+  if (listId === 'custSkladComboList') {
+    if (p._isCustom && p._customData) {
+      const cd = p._customData;
+      document.getElementById('custSkladName').value = cd.name;
+      const grpSel = document.getElementById('custSkladGroup');
+      if (grpSel && cd.food_group) grpSel.value = cd.food_group;
+      const unitSel = document.getElementById('custSkladUnit');
+      if (unitSel && cd.unit) unitSel.value = cd.unit;
+      document.getElementById('custSkladQty').value = cd.qty || 1;
+      document.getElementById('custSkladPrice').value = cd.price || '';
+      document.getElementById('custSkladSupplier').value = cd.supplier || '';
+    } else if (p._isCategory) {
+      const grpSel = document.getElementById('custSkladGroup');
+      if (grpSel && p.food_group) grpSel.value = p.food_group;
+      const unitSel = document.getElementById('custSkladUnit');
+      if (unitSel && p.default_unit) unitSel.value = p.default_unit;
+      document.getElementById('custSkladName').value = '';
+      document.getElementById('custSkladName').placeholder = `Název produktu (${p.name})…`;
+      document.getElementById('custSkladName').focus();
+    }
+  }
+
   // --- Custom item form (Nákup) ---
   if (listId === 'custItemComboList') {
     if (p._isCustom && p._customData) {
@@ -1371,7 +1460,7 @@ function productComboApply(listId, idx) {
 // Close combo when clicking outside
 document.addEventListener('click', e => {
   document.querySelectorAll('.product-combo-list').forEach(list => {
-    if (!list.contains(e.target) && e.target.id !== 'itemName' && e.target.id !== 'custItemName') {
+    if (!list.contains(e.target) && e.target.id !== 'itemName' && e.target.id !== 'custItemName' && e.target.id !== 'custSkladName') {
       list.classList.add('hidden');
     }
   });

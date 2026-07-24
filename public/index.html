@@ -256,21 +256,22 @@
       </div>
     </div>
 
-    <!-- Shopping list summary -->
-    <div id="shoppingPanel" class="hidden">
-      <div class="section-title">
-        <h3>Nákupní seznam — položky k zakoupení</h3>
-        <button class="btn btn-secondary btn-sm" id="btnAddCustomItem">+ Přidat vlastní položku</button>
+    <!-- ── Vlastní položky (always visible) ─────────────────── -->
+    <div class="card" style="margin-top:1rem">
+      <div class="section-title" style="margin-bottom:.5rem">
+        <h3>Vlastní položky</h3>
+        <button class="btn btn-secondary btn-sm" id="btnAddCustomItem"
+                onclick="document.getElementById('customItemForm').classList.remove('hidden');document.getElementById('custItemName').focus()">+ Přidat vlastní položku</button>
       </div>
 
       <!-- Saved custom products — quick-add chips loaded from DB -->
-      <div id="savedCustomProductsPanel" style="margin-bottom:.75rem">
+      <div id="savedCustomProductsPanel">
         <p class="muted" style="font-size:.8rem;margin-bottom:.35rem">⭐ Uložené vlastní položky (kliknutím přidáte do seznamu):</p>
         <div id="savedCustomProducts" class="saved-products-chips"></div>
       </div>
 
       <!-- Custom item quick-add form -->
-      <div id="customItemForm" class="card form-card hidden">
+      <div id="customItemForm" class="form-card hidden" style="margin-top:.75rem">
         <div class="form-grid">
           <div class="form-group">
             <label>Surovina</label>
@@ -311,10 +312,17 @@
             💾 Uložit pro příště
           </label>
           <button class="btn btn-primary" id="btnSaveCustomItem">Přidat do seznamu</button>
-          <button class="btn btn-ghost" id="btnCancelCustomItem">Zrušit</button>
+          <button class="btn btn-ghost" id="btnCancelCustomItem"
+                  onclick="document.getElementById('customItemForm').classList.add('hidden')">Zrušit</button>
         </div>
       </div>
+    </div>
 
+    <!-- Shopping list summary -->
+    <div id="shoppingPanel" class="hidden">
+      <div class="section-title">
+        <h3>Nákupní seznam — položky k zakoupení</h3>
+      </div>
       <div id="shoppingList"></div>
       <div class="cart-total">
         <span>Odhadovaná celková cena:</span>
@@ -340,6 +348,8 @@
         <button class="btn btn-secondary" id="btnConsumeWeek">📤 Odepsat spotřebu týdne</button>
         <button class="btn btn-primary" id="btnWarehouseFromNorms">🧮 Načíst z výpočtu surovin</button>
         <button class="btn btn-secondary" id="btnAddItem">+ Ruční příjem</button>
+        <button class="btn btn-secondary" id="btnAddCustomItemSklad"
+                onclick="document.getElementById('customItemFormSklad').classList.remove('hidden');document.getElementById('custSkladName').focus()">+ Vlastní položka</button>
       </div>
     </div>
 
@@ -391,6 +401,52 @@
       <div class="form-actions">
         <button class="btn btn-primary" id="btnSaveItem">Uložit na sklad</button>
         <button class="btn btn-ghost" id="btnCancelItem">Zrušit</button>
+      </div>
+    </div>
+
+    <!-- Custom item form for Sklad (vlastní položka) -->
+    <div id="customItemFormSklad" class="card form-card hidden">
+      <h3>Vlastní položka na sklad</h3>
+      <div class="form-grid">
+        <div class="form-group" style="position:relative">
+          <label>Název suroviny</label>
+          <input type="text" id="custSkladName" placeholder="např. Vejce od farmáře" autocomplete="off"
+                 oninput="productComboInput(this,'custSkladComboList')"
+                 onkeydown="productComboKey(event,'custSkladComboList')" />
+          <ul id="custSkladComboList" class="product-combo-list hidden"></ul>
+        </div>
+        <div class="form-group">
+          <label>Skupina potravin</label>
+          <select id="custSkladGroup"></select>
+        </div>
+        <div class="form-group">
+          <label>Množství</label>
+          <input type="number" id="custSkladQty" placeholder="1" min="0" step="0.1" />
+        </div>
+        <div class="form-group">
+          <label>Jednotka</label>
+          <select id="custSkladUnit">
+            <option>kg</option><option>g</option><option>l</option>
+            <option>ml</option><option>ks</option><option>bal</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Cena (Kč)</label>
+          <input type="number" id="custSkladPrice" placeholder="0.00" min="0" step="0.01" />
+        </div>
+        <div class="form-group">
+          <label>Dodavatel</label>
+          <input type="text" id="custSkladSupplier" placeholder="např. Farma Novák" />
+        </div>
+      </div>
+      <div class="form-actions" style="flex-wrap:wrap;gap:.5rem">
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.88rem;cursor:pointer;margin-right:auto">
+          <input type="checkbox" id="custSkladSaveToDb" />
+          💾 Uložit pro příště
+        </label>
+        <button class="btn btn-primary" id="btnSaveCustomItemSklad">Uložit na sklad</button>
+        <button class="btn btn-ghost" id="btnCancelCustomItemSklad"
+                onclick="document.getElementById('customItemFormSklad').classList.add('hidden')">Zrušit</button>
       </div>
     </div>
 
