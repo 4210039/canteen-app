@@ -284,7 +284,13 @@
           </div>
           <div class="form-group">
             <label>Skupina potravin</label>
-            <select id="custItemGroup"></select>
+            <select id="custItemGroup" onchange="custItemGroupChanged(this.value)"></select>
+          </div>
+          <div class="form-group" id="custItemSubcategoryWrap" style="display:none">
+            <label>Podkategorie</label>
+            <select id="custItemSubcategory">
+              <option value="">— žádná —</option>
+            </select>
           </div>
           <div class="form-group">
             <label>Množství</label>
@@ -417,7 +423,13 @@
         </div>
         <div class="form-group">
           <label>Skupina potravin</label>
-          <select id="custSkladGroup"></select>
+          <select id="custSkladGroup" onchange="custSkladGroupChanged(this.value)"></select>
+        </div>
+        <div class="form-group" id="custSkladSubcategoryWrap" style="display:none">
+          <label>Podkategorie</label>
+          <select id="custSkladSubcategory">
+            <option value="">— žádná —</option>
+          </select>
         </div>
         <div class="form-group">
           <label>Množství</label>

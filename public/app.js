@@ -878,6 +878,38 @@ function updateCartTotal() {
     total > 0 ? total.toFixed(0) + ' Kč' : '– Kč (zadejte ceny)';
 }
 
+// Populate subcategory select when food group changes (custom item form — Nákup)
+function custItemGroupChanged(groupKey) {
+  const wrap = document.getElementById('custItemSubcategoryWrap');
+  const sel  = document.getElementById('custItemSubcategory');
+  if (!groupKey) { wrap.style.display = 'none'; return; }
+  const subs = [...new Set(
+    (STATE.products || [])
+      .filter(p => p.food_group === groupKey && p.category_l2)
+      .map(p => p.category_l2)
+  )].sort();
+  if (!subs.length) { wrap.style.display = 'none'; return; }
+  sel.innerHTML = `<option value="">— žádná —</option>` +
+    subs.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  wrap.style.display = '';
+}
+
+// Same for Sklad form
+function custSkladGroupChanged(groupKey) {
+  const wrap = document.getElementById('custSkladSubcategoryWrap');
+  const sel  = document.getElementById('custSkladSubcategory');
+  if (!groupKey) { wrap.style.display = 'none'; return; }
+  const subs = [...new Set(
+    (STATE.products || [])
+      .filter(p => p.food_group === groupKey && p.category_l2)
+      .map(p => p.category_l2)
+  )].sort();
+  if (!subs.length) { wrap.style.display = 'none'; return; }
+  sel.innerHTML = `<option value="">— žádná —</option>` +
+    subs.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  wrap.style.display = '';
+}
+
 // ── Custom supplier item ────────────────────────────────────
 async function loadSavedCustomProducts() {
   const orgId = window.SYNC?.ORG_ID;
@@ -956,19 +988,21 @@ function initCustomItemForm() {
     document.getElementById('customItemForm').classList.add('hidden');
   });
   document.getElementById('btnSaveCustomItem')?.addEventListener('click', async () => {
-    const name     = document.getElementById('custItemName').value.trim();
-    const group    = document.getElementById('custItemGroup').value || null;
-    const qty      = parseFloat(document.getElementById('custItemQty').value) || 1;
-    const unit     = document.getElementById('custItemUnit').value;
-    const price    = parseFloat(document.getElementById('custItemPrice').value) || 0;
-    const supplier = document.getElementById('custItemSupplier').value.trim() || 'Vlastní dodavatel';
-    const saveToDb = document.getElementById('custItemSaveToDb')?.checked;
+    const name        = document.getElementById('custItemName').value.trim();
+    const group       = document.getElementById('custItemGroup').value || null;
+    const subcategory = document.getElementById('custItemSubcategory')?.value || null;
+    const qty         = parseFloat(document.getElementById('custItemQty').value) || 1;
+    const unit        = document.getElementById('custItemUnit').value;
+    const price       = parseFloat(document.getElementById('custItemPrice').value) || 0;
+    const supplier    = document.getElementById('custItemSupplier').value.trim() || 'Vlastní dodavatel';
+    const saveToDb    = document.getElementById('custItemSaveToDb')?.checked;
 
     if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
 
     STATE.cart.push({
       id: 'custom_' + Date.now(),
       foodGroup: group,
+      subcategory,
       name, qty, unit, price,
       store: supplier,
       promo: false,
@@ -996,6 +1030,8 @@ function initCustomItemForm() {
     document.getElementById('customItemForm').classList.add('hidden');
     ['custItemName','custItemQty','custItemPrice','custItemSupplier'].forEach(id => document.getElementById(id).value = '');
     if (document.getElementById('custItemSaveToDb')) document.getElementById('custItemSaveToDb').checked = false;
+    if (document.getElementById('custItemGroup')) document.getElementById('custItemGroup').value = '';
+    custItemGroupChanged(''); // hide subcategory field
   });
 }
 
@@ -1337,13 +1373,14 @@ function initWarehouseForm() {
   }
 
   document.getElementById('btnSaveCustomItemSklad')?.addEventListener('click', async () => {
-    const name     = document.getElementById('custSkladName').value.trim();
-    const group    = document.getElementById('custSkladGroup').value || null;
-    const qty      = parseFloat(document.getElementById('custSkladQty').value) || 1;
-    const unit     = document.getElementById('custSkladUnit').value;
-    const price    = parseFloat(document.getElementById('custSkladPrice').value) || 0;
-    const supplier = document.getElementById('custSkladSupplier').value.trim() || 'Vlastní dodavatel';
-    const saveToDb = document.getElementById('custSkladSaveToDb')?.checked;
+    const name        = document.getElementById('custSkladName').value.trim();
+    const group       = document.getElementById('custSkladGroup').value || null;
+    const subcategory = document.getElementById('custSkladSubcategory')?.value || null;
+    const qty         = parseFloat(document.getElementById('custSkladQty').value) || 1;
+    const unit        = document.getElementById('custSkladUnit').value;
+    const price       = parseFloat(document.getElementById('custSkladPrice').value) || 0;
+    const supplier    = document.getElementById('custSkladSupplier').value.trim() || 'Vlastní dodavatel';
+    const saveToDb    = document.getElementById('custSkladSaveToDb')?.checked;
 
     if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
 
@@ -1383,6 +1420,8 @@ function initWarehouseForm() {
         document.getElementById(id).value = '';
       });
       if (document.getElementById('custSkladSaveToDb')) document.getElementById('custSkladSaveToDb').checked = false;
+      if (document.getElementById('custSkladGroup')) document.getElementById('custSkladGroup').value = '';
+      custSkladGroupChanged('');
     } catch (err) {
       toast('Položku se nepodařilo uložit: ' + err.message, 'error');
     } finally {
@@ -1578,7 +1617,7 @@ function productComboApply(listId, idx) {
       const cd = p._customData;
       document.getElementById('custSkladName').value = cd.name;
       const grpSel = document.getElementById('custSkladGroup');
-      if (grpSel && cd.food_group) grpSel.value = cd.food_group;
+      if (grpSel && cd.food_group) { grpSel.value = cd.food_group; custSkladGroupChanged(cd.food_group); }
       const unitSel = document.getElementById('custSkladUnit');
       if (unitSel && cd.unit) unitSel.value = cd.unit;
       document.getElementById('custSkladQty').value = cd.qty || 1;
@@ -1586,7 +1625,7 @@ function productComboApply(listId, idx) {
       document.getElementById('custSkladSupplier').value = cd.supplier || '';
     } else if (p._isCategory) {
       const grpSel = document.getElementById('custSkladGroup');
-      if (grpSel && p.food_group) grpSel.value = p.food_group;
+      if (grpSel && p.food_group) { grpSel.value = p.food_group; custSkladGroupChanged(p.food_group); }
       const unitSel = document.getElementById('custSkladUnit');
       if (unitSel && p.default_unit) unitSel.value = p.default_unit;
       document.getElementById('custSkladName').value = '';
@@ -1598,20 +1637,18 @@ function productComboApply(listId, idx) {
   // --- Custom item form (Nákup) ---
   if (listId === 'custItemComboList') {
     if (p._isCustom && p._customData) {
-      // Saved custom product — fill everything including name
       const cd = p._customData;
       document.getElementById('custItemName').value = cd.name;
       const grpSel = document.getElementById('custItemGroup');
-      if (grpSel && cd.food_group) grpSel.value = cd.food_group;
+      if (grpSel && cd.food_group) { grpSel.value = cd.food_group; custItemGroupChanged(cd.food_group); }
       const unitSel = document.getElementById('custItemUnit');
       if (unitSel && cd.unit) unitSel.value = cd.unit;
       document.getElementById('custItemQty').value = cd.qty || 1;
       document.getElementById('custItemPrice').value = cd.price || '';
       document.getElementById('custItemSupplier').value = cd.supplier || '';
     } else if (p._isCategory) {
-      // Category selected — set group & unit, leave name for user to type their product
       const grpSel = document.getElementById('custItemGroup');
-      if (grpSel && p.food_group) grpSel.value = p.food_group;
+      if (grpSel && p.food_group) { grpSel.value = p.food_group; custItemGroupChanged(p.food_group); }
       const unitSel = document.getElementById('custItemUnit');
       if (unitSel && p.default_unit) unitSel.value = p.default_unit;
       document.getElementById('custItemName').value = '';
