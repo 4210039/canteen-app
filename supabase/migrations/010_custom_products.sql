@@ -21,14 +21,14 @@ create index if not exists custom_products_org_idx on custom_products(org_id);
 
 alter table custom_products enable row level security;
 
-create policy "org members can read custom products"
+create policy "custom_products_select"
   on custom_products for select
-  using (org_id in (select org_id from org_members where user_id = auth.uid()));
+  using (org_id = current_user_org_id());
 
-create policy "org members can insert custom products"
+create policy "custom_products_insert"
   on custom_products for insert
-  with check (org_id in (select org_id from org_members where user_id = auth.uid()));
+  with check (org_id = current_user_org_id());
 
-create policy "org members can delete custom products"
+create policy "custom_products_delete"
   on custom_products for delete
-  using (org_id in (select org_id from org_members where user_id = auth.uid()));
+  using (org_id = current_user_org_id());
