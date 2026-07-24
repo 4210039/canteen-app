@@ -1224,11 +1224,15 @@ function productComboInput(input, listId) {
 
   if (q.length < 1) { list.classList.add('hidden'); list.innerHTML = ''; return; }
 
-  // Search catalogue products
-  const catalogueMatches = STATE.products.filter(p => {
-    const hay = `${p.name} ${p.brand || ''} ${p.category_l2}`.toLowerCase();
+  // Search categories (category_l1 = main section, category_l2 = subcategory)
+  const categoryMatches = STATE.products.filter(p => {
+    const hay = `${p.category_l1} ${p.category_l2}`.toLowerCase();
     return q.split(' ').every(tok => hay.includes(tok));
-  });
+  }).map(p => ({
+    ...p,
+    name: p.category_l2,   // display the subcategory as the item name
+    _isCategory: true,
+  }));
 
   // Search saved custom products — normalise to same shape
   const customMatches = (STATE.savedCustomProducts || [])
@@ -1236,7 +1240,7 @@ function productComboInput(input, listId) {
     .map(p => ({
       id: p.id,
       name: p.name,
-      brand: '',
+      category_l1: p.food_group || 'Vlastní',
       category_l2: p.food_group || 'Vlastní',
       default_unit: p.unit,
       default_store: p.supplier || '',
@@ -1245,9 +1249,9 @@ function productComboInput(input, listId) {
       _customData: p,
     }));
 
-  // Merge: custom first (exact saves), then catalogue; deduplicate by name
+  // Custom saved products first, then categories; deduplicate by display name
   const seen = new Set();
-  const matches = [...customMatches, ...catalogueMatches].filter(p => {
+  const matches = [...customMatches, ...categoryMatches].filter(p => {
     const key = p.name.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
@@ -1260,7 +1264,7 @@ function productComboInput(input, listId) {
     <li class="pcl-item${p._isCustom ? ' pcl-item--custom' : ''}" data-idx="${i}" tabindex="-1"
         onmousedown="productComboSelect(event,'${listId}')">
       <span class="pcl-name">${escHtml(p.name)}${p._isCustom ? ' <em class="pcl-custom-badge">vlastní</em>' : ''}</span>
-      <span class="pcl-meta">${escHtml(p.category_l2)} · ${escHtml(p.default_unit)}</span>
+      <span class="pcl-meta">${escHtml(p._isCategory ? p.category_l1 : (p.category_l2 || ''))} · ${escHtml(p.default_unit || 'ks')}</span>
     </li>`).join('');
 
   list._matches = matches;
@@ -1310,9 +1314,10 @@ function productComboApply(listId, idx) {
 
   // --- Custom item form (Nákup) ---
   if (listId === 'custItemComboList') {
-    document.getElementById('custItemName').value = p.name;
     if (p._isCustom && p._customData) {
+      // Saved custom product — fill everything including name
       const cd = p._customData;
+      document.getElementById('custItemName').value = cd.name;
       const grpSel = document.getElementById('custItemGroup');
       if (grpSel && cd.food_group) grpSel.value = cd.food_group;
       const unitSel = document.getElementById('custItemUnit');
@@ -1320,31 +1325,38 @@ function productComboApply(listId, idx) {
       document.getElementById('custItemQty').value = cd.qty || 1;
       document.getElementById('custItemPrice').value = cd.price || '';
       document.getElementById('custItemSupplier').value = cd.supplier || '';
-    } else {
+    } else if (p._isCategory) {
+      // Category selected — set group & unit, leave name for user to type their product
       const grpSel = document.getElementById('custItemGroup');
       if (grpSel && p.food_group) grpSel.value = p.food_group;
       const unitSel = document.getElementById('custItemUnit');
       if (unitSel && p.default_unit) unitSel.value = p.default_unit;
+      document.getElementById('custItemName').value = '';
+      document.getElementById('custItemName').placeholder = `Název produktu (${p.name})…`;
+      document.getElementById('custItemName').focus();
     }
   }
 
   // --- Warehouse entry form ---
   if (listId === 'itemComboList') {
-    document.getElementById('itemName').value = p.name;
-    // Set food group select
+    if (p._isCustom && p._customData) {
+      document.getElementById('itemName').value = p._customData.name;
+    } else if (p._isCategory) {
+      document.getElementById('itemName').value = '';
+      document.getElementById('itemName').placeholder = `Název produktu (${p.name})…`;
+    } else {
+      document.getElementById('itemName').value = p.name;
+    }
     const grpSel = document.getElementById('itemGroup');
-    if (grpSel) {
-      // Find the option whose value matches p.food_group
+    if (grpSel && p.food_group) {
       const opt = [...grpSel.options].find(o => o.value === p.food_group);
       if (opt) grpSel.value = p.food_group;
     }
-    // Set unit
     const unitSel = document.getElementById('itemUnit');
-    if (unitSel) {
+    if (unitSel && p.default_unit) {
       const opt = [...unitSel.options].find(o => o.value === p.default_unit);
       if (opt) unitSel.value = p.default_unit;
     }
-    // Set store if known
     if (p.default_store) {
       const storeSel = document.getElementById('itemStore');
       if (storeSel) {
@@ -1352,8 +1364,7 @@ function productComboApply(listId, idx) {
         if (opt) storeSel.value = p.default_store;
       }
     }
-    // Store product_id for ledger entry
-    document.getElementById('itemName')._productId = p.id;
+    document.getElementById('itemName')._productId = p._isCustom ? p.id : null;
   }
 }
 

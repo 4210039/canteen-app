@@ -528,21 +528,30 @@ router.delete('/ledger/:orgId/all', requireRole('admin', 'vedouci'), async (req,
 
 // ── Products catalogue ────────────────────────────────────────────────────
 
-// GET all products visible to this org (global + org-specific)
+// GET distinct categories (category_l1 + category_l2) — no individual product names
+// This powers the combobox: users pick a category/subcategory, then name their own product.
 router.get('/products/:orgId', requireAuth, async (req, res) => {
   const supabase = getSupabase(); // service role — bypass RLS for catalogue read
   const { orgId } = req.params;
   const { data, error } = await supabase
     .from('products')
-    .select('id,name,brand,category_l1,category_l2,food_group,default_unit,default_store,org_id')
+    .select('category_l1,category_l2,food_group,default_unit')
     .or(`org_id.is.null,org_id.eq.${orgId}`)
     .eq('active', true)
-    .order('category_l1').order('category_l2').order('name');
+    .order('category_l1').order('category_l2');
   if (error) {
     console.error('[products GET] supabase error:', error);
     return res.status(500).json({ error: error.message });
   }
-  res.json(data || []);
+  // Deduplicate: one entry per unique category_l1 + category_l2
+  const seen = new Set();
+  const categories = (data || []).filter(row => {
+    const key = `${row.category_l1}||${row.category_l2}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  res.json(categories);
 });
 
 // POST create a custom org-specific product
