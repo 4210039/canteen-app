@@ -558,8 +558,8 @@ router.get('/products/:orgId', requireAuth, async (req, res) => {
 // Uses service role to bypass RLS — auth is handled by requireAuth middleware above.
 router.post('/products', async (req, res) => {
   const supabase = getSupabase();
-  const orgId = req.user?.org_id;
-  if (!orgId) return res.status(403).json({ error: 'org_id not found on user' });
+  const orgId = req.profile?.org_id;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on profile' });
   const { name, brand, category_l1, category_l2, food_group, default_unit, default_store } = req.body;
   if (!name || !category_l1 || !category_l2 || !food_group || !default_unit)
     return res.status(400).json({ error: 'name, category_l1, category_l2, food_group, default_unit required' });
