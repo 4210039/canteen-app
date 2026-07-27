@@ -549,7 +549,7 @@ function renderNakupGrid(rows) {
             <div class="rezerva-label">
               <span class="rezerva-name rezerva-subname">${escHtml(sub)}</span>
             </div>
-            <label class="rezerva-input-wrap">
+            <div class="rezerva-input-wrap">
               <span class="muted" style="font-size:.72rem">množství:</span>
               <input type="number" class="rezerva-val-input rezerva-sub-input" data-key="${escHtml(subKey)}" data-rowkey="${escHtml(r.rowKey)}" value="0" min="0" step="0.1" />
               <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
@@ -558,7 +558,7 @@ function renderNakupGrid(rows) {
               <button class="rezerva-del-btn" title="Odstranit podkategorii" onclick="nakupDeleteSubcategory(this,'${escHtml(r.key)}','${escHtml(sub)}')">
                 <i class="ti ti-trash" aria-hidden="true"></i>
               </button>
-            </label>
+            </div>
           </div>`;
       }).join('');
       return `<div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}" data-foodgroup="${escHtml(r.key)}">
@@ -637,7 +637,7 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
     <div class="rezerva-label">
       <span class="rezerva-name rezerva-subname">${escHtml(name)}</span>
     </div>
-    <label class="rezerva-input-wrap">
+    <div class="rezerva-input-wrap">
       <span class="muted" style="font-size:.72rem">množství:</span>
       <input type="number" class="rezerva-val-input rezerva-sub-input"
              data-key="${escHtml(subKey)}" data-rowkey="${escHtml(rowKey)}"
@@ -649,7 +649,7 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
               onclick="nakupDeleteSubcategory(this,'${escHtml(foodGroup)}','${escHtml(name)}')">
         <i class="ti ti-trash" aria-hidden="true"></i>
       </button>
-    </label>`;
+    </div>`;
 
   // Insert before the trigger button so add-row stays last
   const trigger = document.getElementById(`addTrigger_${safeKey}`);
