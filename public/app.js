@@ -34,6 +34,7 @@ const STATE = {
   cart: [],                  // current shopping list draft, built from norms calc (session-only, not persisted to DB)
   products: [],              // product catalogue cache [{id,name,brand,category_l1,category_l2,food_group,default_unit,default_store}]
   savedCustomProducts: [],   // persistent custom products from DB, shown as quick-add chips in Nákup
+  hiddenSubcategories: [],   // [{food_group, category_l2}] — excluded from Nákup grid per org
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -502,9 +503,11 @@ function renderNakupGrid(rows) {
   const bufferDays = getYearEndTaperedBufferDays();
 
   // Build subcategory map from loaded categories: food_group -> [category_l2, ...]
+  // Filter out any hidden by this org
   const subsByGroup = {};
   for (const cat of (STATE.products || [])) {
     if (!cat.food_group || !cat.category_l2) continue;
+    if (isSubcategoryHidden(cat.food_group, cat.category_l2)) continue;
     if (!subsByGroup[cat.food_group]) subsByGroup[cat.food_group] = [];
     if (!subsByGroup[cat.food_group].includes(cat.category_l2))
       subsByGroup[cat.food_group].push(cat.category_l2);
@@ -681,6 +684,16 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
   }
 }
 
+async function loadHiddenSubcategories() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  try {
+    STATE.hiddenSubcategories = await dbGet(`/api/db/hidden-subcategories/${orgId}`);
+  } catch (e) {
+    STATE.hiddenSubcategories = [];
+  }
+}
+
 async function nakupDeleteSubcategory(btn, foodGroup, subName) {
   const row = btn.closest('.rezerva-subrow');
   if (!row) return;
@@ -693,15 +706,24 @@ async function nakupDeleteSubcategory(btn, foodGroup, subName) {
     !(p.food_group === foodGroup && p.category_l2 === subName)
   );
 
-  // Delete from DB — find the product by food_group + category_l2 for this org
+  // Add to hidden list so it stays hidden after re-render
+  STATE.hiddenSubcategories = [...(STATE.hiddenSubcategories || []),
+    { food_group: foodGroup, category_l2: subName }];
+
+  // Persist via unified hide route (handles both global and org-specific)
   try {
-    const orgId = window.SYNC?.ORG_ID;
-    const res = await authedFetch(`/api/db/products/by-category?org_id=${encodeURIComponent(orgId)}&food_group=${encodeURIComponent(foodGroup)}&category_l2=${encodeURIComponent(subName)}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error((await res.json().catch(()=>({}))).error || res.status);
+    await dbPost('/api/db/hidden-subcategories', { food_group: foodGroup, category_l2: subName });
     toast(`Podkategorie „${subName}" odstraněna.`, 'success');
   } catch (e) {
-    toast(`Odstraněno z pohledu, ale smazání z DB selhalo: ${e.message}`, 'warning');
+    toast(`Odstraněno z pohledu, ale uložení selhalo: ${e.message}`, 'warning');
   }
+}
+
+// Returns true if a subcategory is hidden for this org
+function isSubcategoryHidden(foodGroup, category_l2) {
+  return (STATE.hiddenSubcategories || []).some(
+    h => h.food_group === foodGroup && h.category_l2 === category_l2
+  );
 }
 
 /**
@@ -885,7 +907,7 @@ function custItemGroupChanged(groupKey) {
   if (!groupKey) { wrap.style.display = 'none'; return; }
   const subs = [...new Set(
     (STATE.products || [])
-      .filter(p => p.food_group === groupKey && p.category_l2)
+      .filter(p => p.food_group === groupKey && p.category_l2 && !isSubcategoryHidden(groupKey, p.category_l2))
       .map(p => p.category_l2)
   )].sort();
   if (!subs.length) { wrap.style.display = 'none'; return; }
@@ -901,7 +923,7 @@ function custSkladGroupChanged(groupKey) {
   if (!groupKey) { wrap.style.display = 'none'; return; }
   const subs = [...new Set(
     (STATE.products || [])
-      .filter(p => p.food_group === groupKey && p.category_l2)
+      .filter(p => p.food_group === groupKey && p.category_l2 && !isSubcategoryHidden(groupKey, p.category_l2))
       .map(p => p.category_l2)
   )].sort();
   if (!subs.length) { wrap.style.display = 'none'; return; }
@@ -1371,6 +1393,12 @@ function initWarehouseForm() {
       Object.entries(window.NORMS.foodGroups).map(([key, g]) =>
         `<option value="${key}">${escHtml(g.label)}</option>`).join('');
   }
+
+  // Re-populate subcategory when Sklad form opens (in case products loaded after init)
+  document.getElementById('btnAddCustomItemSklad')?.addEventListener('click', () => {
+    const grp = document.getElementById('custSkladGroup')?.value;
+    if (grp) custSkladGroupChanged(grp);
+  });
 
   document.getElementById('btnSaveCustomItemSklad')?.addEventListener('click', async () => {
     const name        = document.getElementById('custSkladName').value.trim();
@@ -2264,6 +2292,7 @@ async function showApp() {
   const ok = await refreshAllFromCloud();
   renderAll();
   loadSavedCustomProducts();
+  loadHiddenSubcategories();
   if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
   if (STATE.currentMenu?.fetchedAt) {
     document.getElementById('lastCheck').textContent =

@@ -587,6 +587,40 @@ router.delete('/products/by-category', async (req, res) => {
   res.json({ ok: true });
 });
 
+// GET hidden subcategories for org (to filter out of grid)
+router.get('/hidden-subcategories/:orgId', async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('hidden_subcategories')
+    .select('food_group,category_l2')
+    .eq('org_id', orgId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST hide a subcategory (global or org-specific)
+// For global ones: inserts into hidden_subcategories
+// For org-specific ones: sets active=false on the products row
+router.post('/hidden-subcategories', async (req, res) => {
+  const { food_group, category_l2 } = req.body;
+  const orgId = req.profile?.org_id;
+  if (!orgId || !food_group || !category_l2)
+    return res.status(400).json({ error: 'org_id, food_group, category_l2 required' });
+  const supabase = getSupabase();
+
+  // Try to soft-delete org-specific product first
+  const { data: orgProduct } = await supabase.from('products')
+    .select('id').eq('org_id', orgId).eq('food_group', food_group).eq('category_l2', category_l2).single();
+  if (orgProduct) {
+    await supabase.from('products').update({ active: false }).eq('id', orgProduct.id);
+  } else {
+    // Global product — hide via exclusion table
+    await supabase.from('hidden_subcategories').upsert({ org_id: orgId, food_group, category_l2 });
+  }
+  res.json({ ok: true });
+});
+
 // DELETE a custom product (org-specific only, not global)
 router.delete('/products/:id', requireRole('admin', 'vedouci'), async (req, res) => {
   const supabase = userScopedClient(req);
