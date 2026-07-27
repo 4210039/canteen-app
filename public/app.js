@@ -555,9 +555,7 @@ function renderNakupGrid(rows) {
               <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
                 ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
               </select>
-              <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">
-                <i class="ti ti-trash" aria-hidden="true"></i>
-              </button>
+              <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">×</button>
             </div>
           </div>`;
       }).join('');
@@ -595,8 +593,7 @@ function addSubcategoryRow(rowKey, foodGroup) {
   return `
     <div class="rezerva-add-row" id="addTrigger_${safeKey}"
          onclick="nakupToggleAddForm('${safeKey}')">
-      <i class="ti ti-plus" aria-hidden="true"></i>
-      <span>Přidat podkategorii</span>
+      <span>+ Přidat podkategorii</span>
     </div>
     <div class="rezerva-add-form hidden" id="addForm_${safeKey}">
       <input type="text" class="rezerva-add-input" id="addInput_${safeKey}"
@@ -646,9 +643,7 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
       <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
         ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
       </select>
-      <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">
-        <i class="ti ti-trash" aria-hidden="true"></i>
-      </button>
+      <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">×</button>
     </div>`;
 
   // Insert before the trigger button so add-row stays last
