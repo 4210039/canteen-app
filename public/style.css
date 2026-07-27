@@ -240,6 +240,41 @@ input, select { font: inherit; }
   background: var(--green-pale); border-radius: 8px; font-size: .9rem;
 }
 
+.pcl-item--custom { background: var(--primary-pale, #e8f0fe); }
+.pcl-custom-badge {
+  font-size: .7rem; font-style: normal; font-weight: 600;
+  color: var(--primary); background: #d0e4ff;
+  border-radius: 4px; padding: 1px 5px; margin-left: .3rem;
+}
+
+/* ── Saved custom product chips ───────────────────────────── */
+.saved-products-chips {
+  display: flex; flex-wrap: wrap; gap: .4rem; min-height: 1.5rem;
+}
+.saved-product-chip {
+  display: inline-flex; align-items: stretch;
+  border: 1.5px solid var(--primary); border-radius: 20px;
+  overflow: hidden; font-size: .82rem;
+  background: var(--surface);
+  transition: box-shadow .15s;
+}
+.saved-product-chip:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+.chip-add-btn {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: .3rem .7rem; background: none; border: none; cursor: pointer;
+  color: var(--primary); text-align: left; line-height: 1.25;
+}
+.chip-add-btn:hover { background: var(--primary-pale, #e8f0fe); }
+.chip-name { font-weight: 600; }
+.chip-meta { font-size: .75rem; color: var(--ink-mid); }
+.chip-delete-btn {
+  padding: 0 .55rem; background: none; border: none;
+  border-left: 1.5px solid var(--border);
+  cursor: pointer; color: var(--ink-mid); font-size: 1rem; line-height: 1;
+  transition: background .15s, color .15s;
+}
+.chip-delete-btn:hover { background: var(--red-pale, #fdecea); color: var(--danger, #c62828); }
+
 /* ── Warehouse table ──────────────────────────────────────── */
 .wh-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
 .wh-table th {
@@ -292,7 +327,26 @@ input, select { font: inherit; }
 .stat-value { font-size: 1.6rem; font-weight: 700; color: var(--green); }
 .stat-sub   { font-size: .8rem; color: var(--ink-light); }
 
-/* ── Nákup week picker row ────────────────────────────────── */
+/* ── Product combobox ─────────────────────────────────────── */
+.product-combo-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+  background: var(--white); border: 1.5px solid var(--green-light);
+  border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.12);
+  max-height: 280px; overflow-y: auto; margin: 0; padding: 0;
+  list-style: none;
+}
+.pcl-item {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .5rem; padding: .45rem .7rem; cursor: pointer; font-size: .83rem;
+  border-bottom: 1px solid var(--border);
+  transition: background .08s;
+}
+.pcl-item:last-child { border-bottom: none; }
+.pcl-item:hover, .pcl-item.active { background: var(--green-pale); }
+.pcl-name { font-weight: 500; color: var(--ink); flex: 1; }
+.pcl-meta { font-size: .74rem; color: var(--ink-light); white-space: nowrap; }
+
+
 .nakup-week-row {
   display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
   margin-bottom: .5rem;
@@ -924,15 +978,66 @@ input, select { font: inherit; }
 
 /* Per-category reserve grid (Nákup tab) */
 .rezerva-grid {
-  display: flex; flex-direction: column; gap: .5rem;
+  display: flex; flex-direction: column; gap: 1rem;
   margin-top: .75rem;
 }
+.rezerva-group {
+  display: flex; flex-direction: column; gap: 0;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.rezerva-group-header {
+  display: flex; flex-direction: column; gap: .15rem;
+  padding: .6rem .85rem .5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.rezerva-group-name {
+  font-weight: 700; font-size: .92rem; color: var(--ink);
+}
+.rezerva-group-total { color: var(--green); }
 .rezerva-row {
   display: flex; align-items: center; justify-content: space-between;
-  background: var(--white); border: 1px solid var(--border);
-  border-radius: 8px; padding: .55rem .85rem;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  padding: .5rem .85rem;
   gap: 1rem; flex-wrap: wrap;
 }
+.rezerva-row:last-child { border-bottom: none; }
+.rezerva-subrow { background: var(--white); }
+.rezerva-subrow:hover { background: var(--green-pale, #f0faf4); }
+.rezerva-del-btn {
+  width: 24px; height: 24px; min-width: 24px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; background: none; border: none; border-radius: 50%; cursor: pointer;
+  color: var(--ink-mid, var(--text-secondary)); font-size: 1.15rem; line-height: 1;
+  transition: color .15s, background .15s;
+  margin-left: .1rem;
+  flex-shrink: 0;
+}
+.rezerva-del-btn:hover { color: var(--danger, #c62828); background: var(--red-pale, #fdecea); }
+.rezerva-add-row {
+  display: flex; align-items: center; gap: .4rem;
+  padding: .5rem .85rem;
+  font-size: .8rem; color: var(--text-accent, var(--primary));
+  cursor: pointer; border-top: 0.5px dashed var(--border);
+  background: var(--surface-1);
+  transition: background .15s;
+}
+.rezerva-add-row:hover { background: var(--bg-accent, #e8f0fe); }
+.rezerva-add-form {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .6rem .85rem;
+  background: var(--surface-1);
+  border-top: 0.5px solid var(--border-accent, var(--primary));
+}
+.rezerva-add-form.hidden { display: none; }
+.rezerva-add-input {
+  flex: 1; height: 32px; padding: 0 .6rem;
+  border: 1.5px solid var(--border-accent, var(--primary));
+  border-radius: var(--radius); font-size: .85rem;
+  background: var(--surface-2); color: var(--text-primary);
+}
+.rezerva-add-input::placeholder { color: var(--text-muted); }
 .rezerva-label {
   display: flex; flex-direction: column; gap: .1rem; flex: 1; min-width: 180px;
 }

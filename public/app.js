@@ -32,6 +32,9 @@ const STATE = {
   ingredients: [],          // string[]
   ledger: [],                // unified income/outcome transactions (see model above)
   cart: [],                  // current shopping list draft, built from norms calc (session-only, not persisted to DB)
+  products: [],              // product catalogue cache [{id,name,brand,category_l1,category_l2,food_group,default_unit,default_store}]
+  savedCustomProducts: [],   // persistent custom products from DB, shown as quick-add chips in Nákup
+  hiddenSubcategories: [],   // [{food_group, category_l2}] — excluded from Nákup grid per org
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -105,6 +108,19 @@ async function loadAttendanceWeekFromCloud(weekStr) {
 // Refreshes every cloud-backed section in one go. Called after login
 // and whenever a tab/page is (re)opened, per "always re-fetch" — this
 // is the only thing standing in for the old loadAll()/loadAttendance().
+async function loadProductsFromCloud() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) { console.warn('[products] no orgId yet'); return; }
+  try {
+    const res = await authedFetch(`/api/db/products/${orgId}`);
+    if (!res.ok) { console.error('[products] HTTP', res.status); return; }
+    STATE.products = await res.json();
+    console.log('[products] loaded', STATE.products.length, 'products');
+  } catch (err) {
+    console.error('[products] fetch error:', err);
+  }
+}
+
 async function refreshAllFromCloud() {
   setStatus('busy', 'Synchronizuji s databází…');
   try {
@@ -112,6 +128,7 @@ async function refreshAllFromCloud() {
       loadLedgerFromCloud(),
       loadCurrentMenuFromCloud(),
       loadAttendanceWeekFromCloud(getCurrentAttWeek()),
+      loadProductsFromCloud(),
     ]);
     setStatus('ok', 'Synchronizováno');
     return true;
@@ -485,14 +502,25 @@ function renderNakupGrid(rows) {
   const { rates: rateByRowKey } = computeConsumptionRatePerRowKey(28);
   const bufferDays = getYearEndTaperedBufferDays();
 
+  // Build subcategory map from loaded categories: food_group -> [category_l2, ...]
+  // Filter out any hidden by this org
+  const subsByGroup = {};
+  for (const cat of (STATE.products || [])) {
+    if (!cat.food_group || !cat.category_l2) continue;
+    if (isSubcategoryHidden(cat.food_group, cat.category_l2)) continue;
+    if (!subsByGroup[cat.food_group]) subsByGroup[cat.food_group] = [];
+    if (!subsByGroup[cat.food_group].includes(cat.category_l2))
+      subsByGroup[cat.food_group].push(cat.category_l2);
+  }
+
   grid.innerHTML = rows.map(r => {
     const inStockGrams = Math.max(0, stockByRowKey[r.rowKey] || 0);
-    const inStockDisplay = inStockGrams >= 1000 ? `${(inStockGrams / 1000).toFixed(2)} kg` : `${Math.round(inStockGrams)} g`;
+    const inStockDisplay = inStockGrams >= 1000
+      ? `${(inStockGrams / 1000).toFixed(2)} kg` : `${Math.round(inStockGrams)} g`;
 
-    let baseNeedGrams;
-    let needLabel;
+    let baseNeedGrams, needLabel;
     if (smartOn) {
-      const rate = rateByRowKey[r.rowKey] || (r.totalGrams / 7); // fallback: this week's norm spread over 7 days
+      const rate = rateByRowKey[r.rowKey] || (r.totalGrams / 7);
       const target = rate * bufferDays;
       baseNeedGrams = Math.max(0, target - inStockGrams);
       needLabel = `cíl zásoby na ${bufferDays} dní: ${target >= 1000 ? (target/1000).toFixed(1)+' kg' : Math.round(target)+' g'}`;
@@ -500,83 +528,294 @@ function renderNakupGrid(rows) {
       baseNeedGrams = Math.max(0, r.totalGrams - inStockGrams);
       needLabel = `týdenní potřeba: ${r.totalGrams >= 1000 ? (r.totalGrams/1000).toFixed(2)+' kg' : r.totalGrams+' g'}`;
     }
+    const toBuyDisplay = baseNeedGrams >= 1000
+      ? `${(baseNeedGrams / 1000).toFixed(2)} kg` : `${Math.round(baseNeedGrams)} g`;
 
-    const toBuyDisplay = baseNeedGrams >= 1000 ? `${(baseNeedGrams / 1000).toFixed(2)} kg` : `${Math.round(baseNeedGrams)} g`;
+    const subs = subsByGroup[r.key] || [];
 
-    return `<div class="rezerva-row" data-rowkey="${escHtml(r.rowKey)}" data-base-grams="${baseNeedGrams}">
-      <div class="rezerva-label">
-        <span class="rezerva-name">${escHtml(r.label)}</span>
-        <span class="muted rezerva-norm">${escHtml(needLabel)} · na skladě: ${inStockDisplay}</span>
-      </div>
-      <div class="rezerva-tobuy">Navrhujeme koupit: <strong>${toBuyDisplay}</strong></div>
-      <label class="rezerva-input-wrap">
-        <span class="muted" style="font-size:.72rem">rezerva navíc:</span>
-        <input type="number" class="rezerva-val-input" data-key="${escHtml(r.rowKey)}" value="0" min="0" step="1" />
-        <select class="rezerva-unit-select" data-key="${escHtml(r.rowKey)}">
-          ${UNIT_OPTIONS.map(u => `<option value="${u}">${u}</option>`).join('')}
-        </select>
-      </label>
-    </div>`;
+    // ── Category header ────────────────────────────────────
+    const header = `
+      <div class="rezerva-group-header">
+        <span class="rezerva-group-name">${escHtml(r.label)}</span>
+        <span class="muted rezerva-norm">${escHtml(needLabel)} &nbsp;·&nbsp; na skladě: ${inStockDisplay} &nbsp;·&nbsp; celkem koupit: <strong class="rezerva-group-total">${toBuyDisplay}</strong></span>
+      </div>`;
+
+    if (subs.length) {
+      // ── Subcategory rows ─────────────────────────────────
+      const subRows = subs.map(sub => {
+        const subKey = `${r.rowKey}__${sub}`;
+        return `
+          <div class="rezerva-row rezerva-subrow" data-rowkey="${escHtml(r.rowKey)}" data-subkey="${escHtml(subKey)}" data-base-grams="${baseNeedGrams}" data-sub="${escHtml(sub)}" data-foodgroup="${escHtml(r.key)}">
+            <div class="rezerva-label">
+              <span class="rezerva-name rezerva-subname">${escHtml(sub)}</span>
+            </div>
+            <div class="rezerva-input-wrap">
+              <span class="muted" style="font-size:.72rem">množství:</span>
+              <input type="number" class="rezerva-val-input rezerva-sub-input" data-key="${escHtml(subKey)}" data-rowkey="${escHtml(r.rowKey)}" value="0" min="0" step="0.1" />
+              <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
+                ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
+              </select>
+              <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">×</button>
+            </div>
+          </div>`;
+      }).join('');
+      return `<div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}" data-foodgroup="${escHtml(r.key)}">
+        ${header}${subRows}
+        ${addSubcategoryRow(r.rowKey, r.key)}
+      </div>`;
+    }
+
+    // ── Fallback: no subcategories — single row + add button ──
+    return `
+      <div class="rezerva-group" data-groupkey="${escHtml(r.rowKey)}" data-foodgroup="${escHtml(r.key)}">
+        ${header}
+        <div class="rezerva-row" data-rowkey="${escHtml(r.rowKey)}" data-base-grams="${baseNeedGrams}">
+          <div class="rezerva-label">
+            <span class="rezerva-name">${escHtml(r.label)}</span>
+          </div>
+          <div class="rezerva-tobuy">Navrhujeme koupit: <strong>${toBuyDisplay}</strong></div>
+          <label class="rezerva-input-wrap">
+            <span class="muted" style="font-size:.72rem">rezerva navíc:</span>
+            <input type="number" class="rezerva-val-input" data-key="${escHtml(r.rowKey)}" value="0" min="0" step="1" />
+            <select class="rezerva-unit-select" data-key="${escHtml(r.rowKey)}">
+              ${UNIT_OPTIONS.map(u => `<option value="${u}">${u}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+        ${addSubcategoryRow(r.rowKey, r.key)}
+      </div>`;
   }).join('');
 }
 
+// Returns HTML for the inline "+ Přidat podkategorii" row at the bottom of a group
+function addSubcategoryRow(rowKey, foodGroup) {
+  const safeKey = rowKey.replace(/[^a-z0-9_]/gi, '_');
+  return `
+    <div class="rezerva-add-row" id="addTrigger_${safeKey}"
+         onclick="nakupToggleAddForm('${safeKey}')">
+      <span>+ Přidat podkategorii</span>
+    </div>
+    <div class="rezerva-add-form hidden" id="addForm_${safeKey}">
+      <input type="text" class="rezerva-add-input" id="addInput_${safeKey}"
+             placeholder="Název podkategorie, např. Jehněčí"
+             onkeydown="if(event.key==='Enter')nakupSaveSubcategory('${safeKey}','${rowKey}','${foodGroup}')" />
+      <button class="btn btn-primary btn-sm" onclick="nakupSaveSubcategory('${safeKey}','${rowKey}','${foodGroup}')">Přidat</button>
+      <button class="btn btn-ghost btn-sm" onclick="nakupToggleAddForm('${safeKey}')">Zrušit</button>
+    </div>`;
+}
+
+function nakupToggleAddForm(safeKey) {
+  const trigger = document.getElementById(`addTrigger_${safeKey}`);
+  const form    = document.getElementById(`addForm_${safeKey}`);
+  const hidden  = form.classList.contains('hidden');
+  form.classList.toggle('hidden', !hidden);
+  trigger.classList.toggle('hidden', hidden);
+  if (hidden) document.getElementById(`addInput_${safeKey}`)?.focus();
+}
+
+async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
+  const input = document.getElementById(`addInput_${safeKey}`);
+  const name  = input?.value.trim();
+  if (!name) { toast('Zadejte název podkategorie.', 'error'); return; }
+
+  // Optimistically insert a new subrow into the DOM immediately
+  const group = document.querySelector(`.rezerva-group[data-groupkey="${CSS.escape(rowKey)}"]`);
+  const addForm = document.getElementById(`addForm_${safeKey}`);
+  const subKey  = `${rowKey}__${name}`;
+  const baseGrams = parseFloat(group?.querySelector('.rezerva-subrow, .rezerva-row')?.dataset.baseGrams) || 0;
+
+  const newRow = document.createElement('div');
+  newRow.className = 'rezerva-row rezerva-subrow';
+  newRow.dataset.rowkey   = rowKey;
+  newRow.dataset.subkey   = subKey;
+  newRow.dataset.baseGrams = baseGrams;
+  newRow.dataset.sub      = name;
+  newRow.dataset.foodgroup = foodGroup;
+  newRow.innerHTML = `
+    <div class="rezerva-label">
+      <span class="rezerva-name rezerva-subname">${escHtml(name)}</span>
+    </div>
+    <div class="rezerva-input-wrap">
+      <span class="muted" style="font-size:.72rem">množství:</span>
+      <input type="number" class="rezerva-val-input rezerva-sub-input"
+             data-key="${escHtml(subKey)}" data-rowkey="${escHtml(rowKey)}"
+             value="0" min="0" step="0.1" />
+      <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
+        ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
+      </select>
+      <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">×</button>
+    </div>`;
+
+  // Insert before the trigger button so add-row stays last
+  const trigger = document.getElementById(`addTrigger_${safeKey}`);
+  group.insertBefore(newRow, trigger);
+
+  // Reset form
+  input.value = '';
+  nakupToggleAddForm(safeKey);
+
+  // Persist to DB so it appears next time
+  try {
+    const orgId = window.SYNC?.ORG_ID;
+    await dbPost('/api/db/products', {
+      org_id: orgId,
+      name,
+      category_l1: window.NORMS?.foodGroups?.[foodGroup]?.label || foodGroup,
+      category_l2: name,
+      food_group: foodGroup,
+      default_unit: 'kg',
+      active: true,
+    });
+    // Update local cache so combobox also picks it up
+    STATE.products = [...(STATE.products || []), {
+      category_l1: window.NORMS?.foodGroups?.[foodGroup]?.label || foodGroup,
+      category_l2: name,
+      food_group: foodGroup,
+      default_unit: 'kg',
+    }];
+    toast(`Podkategorie „${name}" přidána a uložena.`, 'success');
+  } catch (e) {
+    toast(`„${name}" přidáno do seznamu, ale uložení selhalo: ${e.message}`, 'warning');
+  }
+}
+
+async function loadHiddenSubcategories() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  try {
+    STATE.hiddenSubcategories = await dbGet(`/api/db/hidden-subcategories/${orgId}`);
+  } catch (e) {
+    STATE.hiddenSubcategories = [];
+  }
+}
+
+async function nakupDeleteSubcategory(row) {
+  if (!row) return;
+  const foodGroup = row.dataset.foodgroup;
+  const subName   = row.dataset.sub;
+  if (!foodGroup || !subName) return;
+
+  // Remove from DOM immediately
+  row.remove();
+
+  // Remove from STATE.products cache
+  STATE.products = (STATE.products || []).filter(p =>
+    !(p.food_group === foodGroup && p.category_l2 === subName)
+  );
+
+  // Add to hidden list so it stays hidden after re-render
+  STATE.hiddenSubcategories = [...(STATE.hiddenSubcategories || []),
+    { food_group: foodGroup, category_l2: subName }];
+
+  // Persist via unified hide route (handles both global and org-specific)
+  try {
+    await dbPost('/api/db/hidden-subcategories', { food_group: foodGroup, category_l2: subName });
+    toast(`Podkategorie „${subName}" odstraněna.`, 'success');
+  } catch (e) {
+    toast(`Odstraněno z pohledu, ale uložení selhalo: ${e.message}`, 'warning');
+  }
+}
+
+// Single delegated listener for all subcategory delete buttons (avoids
+// building onclick="" strings with interpolated text, which breaks when
+// names contain apostrophes or quotes)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action="del-subcategory"]');
+  if (!btn) return;
+  const row = btn.closest('.rezerva-subrow');
+  nakupDeleteSubcategory(row);
+});
+
+// Returns true if a subcategory is hidden for this org
+function isSubcategoryHidden(foodGroup, category_l2) {
+  return (STATE.hiddenSubcategories || []).some(
+    h => h.food_group === foodGroup && h.category_l2 === category_l2
+  );
+}
+
 /**
- * Nákup tab: read per-category reserve inputs (% or absolute unit), build
- * cart from (need − stock) + reserve, render shopping list.
+ * Nákup tab: read per-category/subcategory inputs, build cart, render shopping list.
+ * If subcategory rows exist for a food group, each subcategory with qty > 0 becomes
+ * its own cart item. Groups without subcategories fall back to the single-row behaviour.
  */
 function applyRezervaAndBuild() {
   const calc = window.LAST_CALC;
   if (!calc || !calc.results?.length) return;
 
-  // Collect per-category buffer values + their chosen unit
-  const buffers = {}; // rowKey -> { value, unit }
-  document.querySelectorAll('.rezerva-val-input').forEach(input => {
-    const key = input.dataset.key;
-    const unitSelect = document.querySelector(`.rezerva-unit-select[data-key="${CSS.escape(key)}"]`);
-    buffers[key] = { value: Math.max(0, parseFloat(input.value) || 0), unit: unitSelect?.value || '%' };
-  });
+  const cartItems = [];
 
-  // base (stock-adjusted) grams per row, computed by renderNakupGrid and stashed in the DOM
-  const baseGramsByRowKey = {};
-  document.querySelectorAll('.rezerva-row').forEach(row => {
-    baseGramsByRowKey[row.dataset.rowkey] = parseFloat(row.dataset.baseGrams) || 0;
-  });
+  for (const r of calc.results.filter(r => r.totalGrams > 0)) {
+    // Check if this group has subcategory rows
+    const subRows = document.querySelectorAll(`.rezerva-subrow[data-rowkey="${CSS.escape(r.rowKey)}"]`);
 
-  STATE.cart = calc.results
-    .filter(r => r.totalGrams > 0)
-    .map(r => {
-      const baseGrams = baseGramsByRowKey[r.rowKey] ?? r.totalGrams;
-      const buf = buffers[r.rowKey] || { value: 0, unit: '%' };
+    if (subRows.length) {
+      // ── Subcategory mode: one cart item per sub with qty > 0 ──
+      subRows.forEach(row => {
+        const subKey = row.dataset.subkey;
+        const subName = row.dataset.sub;
+        const input = row.querySelector('.rezerva-sub-input');
+        const unitSel = row.querySelector('.rezerva-unit-select');
+        const qty = parseFloat(input?.value) || 0;
+        if (qty <= 0) return; // user left it at 0 — skip
+        const unit = unitSel?.value || 'kg';
+        cartItems.push({
+          id: 'sub_' + subKey + '_' + Date.now(),
+          foodGroup: r.key,
+          name: subName,
+          qty,
+          unit,
+          neededGrams: null,
+          bufferPct: null,
+          bufferAbsolute: null,
+          price: 0,
+          store: '',
+          promo: false,
+          source: 'shopping',
+        });
+      });
+    } else {
+      // ── Fallback: single row with rezerva % or absolute ──
+      const input = document.querySelector(`.rezerva-val-input[data-key="${CSS.escape(r.rowKey)}"]`);
+      const unitSel = document.querySelector(`.rezerva-unit-select[data-key="${CSS.escape(r.rowKey)}"]`);
+      const bufVal = Math.max(0, parseFloat(input?.value) || 0);
+      const bufUnit = unitSel?.value || '%';
+      const baseGrams = parseFloat(
+        document.querySelector(`.rezerva-row[data-rowkey="${CSS.escape(r.rowKey)}"]`)?.dataset.baseGrams
+      ) || r.totalGrams;
+
       let grams;
-      if (buf.unit === '%') {
-        grams = baseGrams * (1 + buf.value / 100);
+      if (bufUnit === '%') {
+        grams = baseGrams * (1 + bufVal / 100);
       } else {
-        grams = baseGrams + toGrams(buf.value, buf.unit);
+        grams = baseGrams + toGrams(bufVal, bufUnit);
       }
       grams = Math.max(0, grams);
-      return {
+      if (grams <= 0) continue;
+
+      cartItems.push({
         id: 'fg_' + r.rowKey,
         foodGroup: r.key,
         name: r.label,
         qty: grams >= 1000 ? +(grams / 1000).toFixed(2) : +grams.toFixed(0),
         unit: grams >= 1000 ? 'kg' : 'g',
         neededGrams: baseGrams,
-        bufferPct: buf.unit === '%' ? buf.value : null,
-        bufferAbsolute: buf.unit !== '%' ? `${buf.value} ${buf.unit}` : null,
+        bufferPct: bufUnit === '%' ? bufVal : null,
+        bufferAbsolute: bufUnit !== '%' ? `${bufVal} ${bufUnit}` : null,
         price: 0,
         store: '',
         promo: false,
         source: 'shopping',
-      };
-    })
-    .filter(item => item.qty > 0); // nothing to buy this round — fully covered by stock
+      });
+    }
+  }
 
+  STATE.cart = cartItems;
   document.getElementById('nakupRezervaPanel').classList.add('hidden');
   renderShoppingList();
   if (!STATE.cart.length) {
-    toast('Sklad pokrývá vše, co je potřeba — není co nakupovat. 🎉', 'success');
+    toast('Zadejte množství u podkategorií které chcete nakoupit. 🛒', 'info');
   } else {
-    toast('Nákupní seznam vytvořen — sklad byl zohledněn!', 'success');
+    toast('Nákupní seznam vytvořen!', 'success');
   }
   setStatus('ok', 'Nákupní seznam připraven');
 }
@@ -668,7 +907,100 @@ function updateCartTotal() {
     total > 0 ? total.toFixed(0) + ' Kč' : '– Kč (zadejte ceny)';
 }
 
+// Populate subcategory select when food group changes (custom item form — Nákup)
+function custItemGroupChanged(groupKey) {
+  const wrap = document.getElementById('custItemSubcategoryWrap');
+  const sel  = document.getElementById('custItemSubcategory');
+  if (!groupKey) { wrap.style.display = 'none'; return; }
+  const subs = [...new Set(
+    (STATE.products || [])
+      .filter(p => p.food_group === groupKey && p.category_l2 && !isSubcategoryHidden(groupKey, p.category_l2))
+      .map(p => p.category_l2)
+  )].sort();
+  if (!subs.length) { wrap.style.display = 'none'; return; }
+  sel.innerHTML = `<option value="">— žádná —</option>` +
+    subs.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  wrap.style.display = '';
+}
+
+// Same for Sklad form
+function custSkladGroupChanged(groupKey) {
+  const wrap = document.getElementById('custSkladSubcategoryWrap');
+  const sel  = document.getElementById('custSkladSubcategory');
+  if (!groupKey) { wrap.style.display = 'none'; return; }
+  const subs = [...new Set(
+    (STATE.products || [])
+      .filter(p => p.food_group === groupKey && p.category_l2 && !isSubcategoryHidden(groupKey, p.category_l2))
+      .map(p => p.category_l2)
+  )].sort();
+  if (!subs.length) { wrap.style.display = 'none'; return; }
+  sel.innerHTML = `<option value="">— žádná —</option>` +
+    subs.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+  wrap.style.display = '';
+}
+
 // ── Custom supplier item ────────────────────────────────────
+async function loadSavedCustomProducts() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  try {
+    const products = await dbGet(`/api/db/custom-products/${orgId}`);
+    STATE.savedCustomProducts = products || [];
+    renderSavedCustomProducts();
+  } catch (e) {
+    console.warn('Nepodařilo se načíst vlastní produkty:', e);
+    STATE.savedCustomProducts = [];
+  }
+}
+
+function renderSavedCustomProducts() {
+  const container = document.getElementById('savedCustomProducts');
+  if (!container) return;
+  const products = STATE.savedCustomProducts || [];
+  if (!products.length) {
+    container.innerHTML = '<p class="muted" style="font-size:.82rem;margin:0">Žádné uložené položky. Po přidání se zde zobrazí pro rychlé použití.</p>';
+    return;
+  }
+  container.innerHTML = products.map(p => `
+    <div class="saved-product-chip" data-id="${escHtml(p.id)}">
+      <button class="chip-add-btn" title="Přidat do seznamu" onclick="addSavedProductToCart('${escHtml(p.id)}')">
+        <span class="chip-name">${escHtml(p.name)}</span>
+        <span class="chip-meta">${p.qty} ${escHtml(p.unit)}${p.price ? ' · ' + p.price + ' Kč' : ''}</span>
+      </button>
+      <button class="chip-delete-btn" title="Odstranit uložený produkt" onclick="deleteSavedProduct('${escHtml(p.id)}')">×</button>
+    </div>
+  `).join('');
+}
+
+function addSavedProductToCart(id) {
+  const p = (STATE.savedCustomProducts || []).find(x => x.id === id);
+  if (!p) return;
+  STATE.cart.push({
+    id: 'custom_' + Date.now(),
+    foodGroup: p.food_group || null,
+    name: p.name,
+    qty: p.qty,
+    unit: p.unit,
+    price: p.price,
+    store: p.supplier || 'Vlastní dodavatel',
+    promo: false,
+    source: 'custom',
+  });
+  renderShoppingList();
+  toast(`„${p.name}" přidáno do nákupního seznamu.`, 'success');
+}
+
+async function deleteSavedProduct(id) {
+  try {
+    await dbDelete(`/api/db/custom-products/${id}`);
+    STATE.savedCustomProducts = (STATE.savedCustomProducts || []).filter(p => p.id !== id);
+    renderSavedCustomProducts();
+    toast('Produkt odstraněn.', 'success');
+  } catch (e) {
+    toast('Nepodařilo se odstranit produkt.', 'error');
+  }
+}
+
 function initCustomItemForm() {
   const groupSelect = document.getElementById('custItemGroup');
   if (groupSelect) {
@@ -679,32 +1011,56 @@ function initCustomItemForm() {
 
   document.getElementById('btnAddCustomItem')?.addEventListener('click', () => {
     document.getElementById('customItemForm').classList.remove('hidden');
+    document.getElementById('custItemName')?.focus();
   });
   document.getElementById('btnCancelCustomItem')?.addEventListener('click', () => {
     document.getElementById('customItemForm').classList.add('hidden');
   });
-  document.getElementById('btnSaveCustomItem')?.addEventListener('click', () => {
-    const name  = document.getElementById('custItemName').value.trim();
-    const group = document.getElementById('custItemGroup').value || null;
-    const qty   = parseFloat(document.getElementById('custItemQty').value) || 1;
-    const unit  = document.getElementById('custItemUnit').value;
-    const price = parseFloat(document.getElementById('custItemPrice').value) || 0;
-    const supplier = document.getElementById('custItemSupplier').value.trim() || 'Vlastní dodavatel';
+  document.getElementById('btnSaveCustomItem')?.addEventListener('click', async () => {
+    const name        = document.getElementById('custItemName').value.trim();
+    const group       = document.getElementById('custItemGroup').value || null;
+    const subcategory = document.getElementById('custItemSubcategory')?.value || null;
+    const qty         = parseFloat(document.getElementById('custItemQty').value) || 1;
+    const unit        = document.getElementById('custItemUnit').value;
+    const price       = parseFloat(document.getElementById('custItemPrice').value) || 0;
+    const supplier    = document.getElementById('custItemSupplier').value.trim() || 'Vlastní dodavatel';
+    const saveToDb    = document.getElementById('custItemSaveToDb')?.checked;
 
     if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
 
     STATE.cart.push({
       id: 'custom_' + Date.now(),
       foodGroup: group,
+      subcategory,
       name, qty, unit, price,
       store: supplier,
       promo: false,
       source: 'custom',
     });
-      renderShoppingList();
+    renderShoppingList();
+
+    if (saveToDb) {
+      try {
+        const saved = await dbPost('/api/db/custom-products', {
+          org_id: window.SYNC.ORG_ID,
+          name, food_group: group, qty, unit, price,
+          supplier: supplier !== 'Vlastní dodavatel' ? supplier : null,
+        });
+        STATE.savedCustomProducts = [...(STATE.savedCustomProducts || []), saved];
+        renderSavedCustomProducts();
+        toast(`„${name}" přidáno a uloženo pro příště.`, 'success');
+      } catch (e) {
+        toast(`„${name}" přidáno, ale uložení selhalo: ${e.message}`, 'warning');
+      }
+    } else {
+      toast(`Položka „${name}" přidána do nákupního seznamu.`, 'success');
+    }
+
     document.getElementById('customItemForm').classList.add('hidden');
     ['custItemName','custItemQty','custItemPrice','custItemSupplier'].forEach(id => document.getElementById(id).value = '');
-    toast(`Položka „${name}" přidána do nákupního seznamu.`, 'success');
+    if (document.getElementById('custItemSaveToDb')) document.getElementById('custItemSaveToDb').checked = false;
+    if (document.getElementById('custItemGroup')) document.getElementById('custItemGroup').value = '';
+    custItemGroupChanged(''); // hide subcategory field
   });
 }
 
@@ -999,13 +1355,15 @@ function initWarehouseForm() {
     document.getElementById('addItemForm').classList.add('hidden');
   });
   document.getElementById('btnSaveItem').addEventListener('click', async () => {
-    const name  = document.getElementById('itemName').value.trim();
+    const nameEl = document.getElementById('itemName');
+    const name  = nameEl.value.trim();
     const foodGroup = document.getElementById('itemGroup').value || null;
     const qty   = parseFloat(document.getElementById('itemQty').value) || 1;
     const unit  = document.getElementById('itemUnit').value;
     const price = parseFloat(document.getElementById('itemPrice').value) || 0;
     const store = document.getElementById('itemStore').value;
     const promo = document.getElementById('itemPromo').value === 'true';
+    const productId = nameEl._productId || null; // set by productComboApply
 
     if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
 
@@ -1014,7 +1372,7 @@ function initWarehouseForm() {
     saveBtn.disabled = true;
     try {
       await dbPost('/api/db/ledger/bulk-in', {
-        entries: [{ org_id: window.SYNC.ORG_ID, name, food_group: foodGroup, qty, unit, grams: toGrams(qty, unit), price, store, promo, week_key: weekKey, source: 'manual' }]
+        entries: [{ org_id: window.SYNC.ORG_ID, name, food_group: foodGroup, qty, unit, grams: toGrams(qty, unit), price, store, promo, week_key: weekKey, source: 'manual', product_id: productId }]
       });
       await loadLedgerFromCloud();
 
@@ -1023,6 +1381,7 @@ function initWarehouseForm() {
       renderFinance();
       document.getElementById('addItemForm').classList.add('hidden');
       ['itemName','itemQty','itemPrice'].forEach(id => document.getElementById(id).value = '');
+      nameEl._productId = null;
       toast('Položka přidána na sklad!', 'success');
     } catch (err) {
       toast('Položku se nepodařilo uložit: ' + err.message, 'error');
@@ -1033,6 +1392,81 @@ function initWarehouseForm() {
 
   document.getElementById('btnConsumeWeek')?.addEventListener('click', consumeWeek);
   document.getElementById('btnWarehouseFromNorms')?.addEventListener('click', warehouseFromNorms);
+
+  // ── Vlastní položka na sklad ─────────────────────────────
+  const custSkladGroup = document.getElementById('custSkladGroup');
+  if (custSkladGroup) {
+    custSkladGroup.innerHTML = `<option value="">— bez skupiny —</option>` +
+      Object.entries(window.NORMS.foodGroups).map(([key, g]) =>
+        `<option value="${key}">${escHtml(g.label)}</option>`).join('');
+  }
+
+  // Re-populate subcategory when Sklad form opens (in case products loaded after init)
+  document.getElementById('btnAddCustomItemSklad')?.addEventListener('click', () => {
+    const grp = document.getElementById('custSkladGroup')?.value;
+    if (grp) custSkladGroupChanged(grp);
+  });
+
+  document.getElementById('btnSaveCustomItemSklad')?.addEventListener('click', async () => {
+    const name        = document.getElementById('custSkladName').value.trim();
+    const group       = document.getElementById('custSkladGroup').value || null;
+    const subcategory = document.getElementById('custSkladSubcategory')?.value || null;
+    const qty         = parseFloat(document.getElementById('custSkladQty').value) || 1;
+    const unit        = document.getElementById('custSkladUnit').value;
+    const price       = parseFloat(document.getElementById('custSkladPrice').value) || 0;
+    const supplier    = document.getElementById('custSkladSupplier').value.trim() || 'Vlastní dodavatel';
+    const saveToDb    = document.getElementById('custSkladSaveToDb')?.checked;
+
+    if (!name) { toast('Zadejte název suroviny.', 'error'); return; }
+
+    const weekKey = getWeekKey();
+    const saveBtn = document.getElementById('btnSaveCustomItemSklad');
+    saveBtn.disabled = true;
+
+    try {
+      await dbPost('/api/db/ledger/bulk-in', {
+        entries: [{ org_id: window.SYNC.ORG_ID, name, food_group: group, qty, unit,
+          grams: toGrams(qty, unit), price, store: supplier, promo: false,
+          week_key: weekKey, source: 'manual' }]
+      });
+      await loadLedgerFromCloud();
+      renderWarehouse();
+      renderStockBalance();
+      renderFinance();
+
+      if (saveToDb) {
+        try {
+          const saved = await dbPost('/api/db/custom-products', {
+            org_id: window.SYNC.ORG_ID, name, food_group: group, qty, unit, price,
+            supplier: supplier !== 'Vlastní dodavatel' ? supplier : null,
+          });
+          STATE.savedCustomProducts = [...(STATE.savedCustomProducts || []), saved];
+          renderSavedCustomProducts();
+          toast(`„${name}" uloženo na sklad a uloženo pro příště.`, 'success');
+        } catch (e) {
+          toast(`„${name}" uloženo na sklad, ale uložení pro příště selhalo.`, 'warning');
+        }
+      } else {
+        toast(`„${name}" přidáno na sklad!`, 'success');
+      }
+
+      document.getElementById('customItemFormSklad').classList.add('hidden');
+      ['custSkladName','custSkladQty','custSkladPrice','custSkladSupplier'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      if (document.getElementById('custSkladSaveToDb')) document.getElementById('custSkladSaveToDb').checked = false;
+      if (document.getElementById('custSkladGroup')) document.getElementById('custSkladGroup').value = '';
+      custSkladGroupChanged('');
+    } catch (err) {
+      toast('Položku se nepodařilo uložit: ' + err.message, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  // Wire custSkladComboList into productComboApply
+  document.getElementById('custSkladName')?.addEventListener('keydown', e =>
+    productComboKey(e, 'custSkladComboList'));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1110,6 +1544,193 @@ function initSettings() {
 
   // Nuclear delete button wired via onclick in HTML
 }
+
+// ══════════════════════════════════════════════════════════
+// PRODUCT COMBOBOX
+// ══════════════════════════════════════════════════════════
+
+// Called on every keystroke in a product name input.
+// listId = id of the <ul> dropdown to populate.
+function productComboInput(input, listId) {
+  const q = input.value.trim().toLowerCase();
+  const list = document.getElementById(listId);
+  if (!list) return;
+
+  if (q.length < 1) { list.classList.add('hidden'); list.innerHTML = ''; return; }
+
+  // Search categories (category_l1 = main section, category_l2 = subcategory)
+  const categoryMatches = STATE.products.filter(p => {
+    const hay = `${p.category_l1} ${p.category_l2}`.toLowerCase();
+    return q.split(' ').every(tok => hay.includes(tok));
+  }).map(p => ({
+    ...p,
+    name: p.category_l2,   // display the subcategory as the item name
+    _isCategory: true,
+  }));
+
+  // Search saved custom products — normalise to same shape
+  const customMatches = (STATE.savedCustomProducts || [])
+    .filter(p => p.name.toLowerCase().includes(q))
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      category_l1: p.food_group || 'Vlastní',
+      category_l2: p.food_group || 'Vlastní',
+      default_unit: p.unit,
+      default_store: p.supplier || '',
+      food_group: p.food_group || '',
+      _isCustom: true,
+      _customData: p,
+    }));
+
+  // Custom saved products first, then categories; deduplicate by display name
+  const seen = new Set();
+  const matches = [...customMatches, ...categoryMatches].filter(p => {
+    const key = p.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 12);
+
+  if (!matches.length) { list.classList.add('hidden'); list.innerHTML = ''; return; }
+
+  list.innerHTML = matches.map((p, i) => `
+    <li class="pcl-item${p._isCustom ? ' pcl-item--custom' : ''}" data-idx="${i}" tabindex="-1"
+        onmousedown="productComboSelect(event,'${listId}')">
+      <span class="pcl-name">${escHtml(p.name)}${p._isCustom ? ' <em class="pcl-custom-badge">vlastní</em>' : ''}</span>
+      <span class="pcl-meta">${escHtml(p._isCategory ? p.category_l1 : (p.category_l2 || ''))} · ${escHtml(p.default_unit || 'ks')}</span>
+    </li>`).join('');
+
+  list._matches = matches;
+  list.classList.remove('hidden');
+}
+
+// Keyboard navigation: Arrow keys + Enter + Escape
+function productComboKey(e, listId) {
+  const list = document.getElementById(listId);
+  if (!list || list.classList.contains('hidden')) return;
+  const items = list.querySelectorAll('.pcl-item');
+  const active = list.querySelector('.pcl-item.active');
+  let idx = active ? parseInt(active.dataset.idx) : -1;
+
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    idx = Math.min(idx + 1, items.length - 1);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    idx = Math.max(idx - 1, 0);
+  } else if (e.key === 'Enter' && active) {
+    e.preventDefault();
+    productComboApply(listId, idx);
+    return;
+  } else if (e.key === 'Escape') {
+    list.classList.add('hidden');
+    return;
+  } else { return; }
+
+  items.forEach(li => li.classList.remove('active'));
+  if (items[idx]) items[idx].classList.add('active');
+}
+
+// Mousedown selection (use mousedown not click to fire before blur)
+function productComboSelect(e, listId) {
+  e.preventDefault();
+  const idx = parseInt(e.currentTarget.dataset.idx);
+  productComboApply(listId, idx);
+}
+
+// Apply selected product to the form fields
+function productComboApply(listId, idx) {
+  const list = document.getElementById(listId);
+  const p = list?._matches?.[idx];
+  if (!p) return;
+  list.classList.add('hidden');
+
+  // --- Vlastní položka Sklad form ---
+  if (listId === 'custSkladComboList') {
+    if (p._isCustom && p._customData) {
+      const cd = p._customData;
+      document.getElementById('custSkladName').value = cd.name;
+      const grpSel = document.getElementById('custSkladGroup');
+      if (grpSel && cd.food_group) { grpSel.value = cd.food_group; custSkladGroupChanged(cd.food_group); }
+      const unitSel = document.getElementById('custSkladUnit');
+      if (unitSel && cd.unit) unitSel.value = cd.unit;
+      document.getElementById('custSkladQty').value = cd.qty || 1;
+      document.getElementById('custSkladPrice').value = cd.price || '';
+      document.getElementById('custSkladSupplier').value = cd.supplier || '';
+    } else if (p._isCategory) {
+      const grpSel = document.getElementById('custSkladGroup');
+      if (grpSel && p.food_group) { grpSel.value = p.food_group; custSkladGroupChanged(p.food_group); }
+      const unitSel = document.getElementById('custSkladUnit');
+      if (unitSel && p.default_unit) unitSel.value = p.default_unit;
+      document.getElementById('custSkladName').value = '';
+      document.getElementById('custSkladName').placeholder = `Název produktu (${p.name})…`;
+      document.getElementById('custSkladName').focus();
+    }
+  }
+
+  // --- Custom item form (Nákup) ---
+  if (listId === 'custItemComboList') {
+    if (p._isCustom && p._customData) {
+      const cd = p._customData;
+      document.getElementById('custItemName').value = cd.name;
+      const grpSel = document.getElementById('custItemGroup');
+      if (grpSel && cd.food_group) { grpSel.value = cd.food_group; custItemGroupChanged(cd.food_group); }
+      const unitSel = document.getElementById('custItemUnit');
+      if (unitSel && cd.unit) unitSel.value = cd.unit;
+      document.getElementById('custItemQty').value = cd.qty || 1;
+      document.getElementById('custItemPrice').value = cd.price || '';
+      document.getElementById('custItemSupplier').value = cd.supplier || '';
+    } else if (p._isCategory) {
+      const grpSel = document.getElementById('custItemGroup');
+      if (grpSel && p.food_group) { grpSel.value = p.food_group; custItemGroupChanged(p.food_group); }
+      const unitSel = document.getElementById('custItemUnit');
+      if (unitSel && p.default_unit) unitSel.value = p.default_unit;
+      document.getElementById('custItemName').value = '';
+      document.getElementById('custItemName').placeholder = `Název produktu (${p.name})…`;
+      document.getElementById('custItemName').focus();
+    }
+  }
+
+  // --- Warehouse entry form ---
+  if (listId === 'itemComboList') {
+    if (p._isCustom && p._customData) {
+      document.getElementById('itemName').value = p._customData.name;
+    } else if (p._isCategory) {
+      document.getElementById('itemName').value = '';
+      document.getElementById('itemName').placeholder = `Název produktu (${p.name})…`;
+    } else {
+      document.getElementById('itemName').value = p.name;
+    }
+    const grpSel = document.getElementById('itemGroup');
+    if (grpSel && p.food_group) {
+      const opt = [...grpSel.options].find(o => o.value === p.food_group);
+      if (opt) grpSel.value = p.food_group;
+    }
+    const unitSel = document.getElementById('itemUnit');
+    if (unitSel && p.default_unit) {
+      const opt = [...unitSel.options].find(o => o.value === p.default_unit);
+      if (opt) unitSel.value = p.default_unit;
+    }
+    if (p.default_store) {
+      const storeSel = document.getElementById('itemStore');
+      if (storeSel) {
+        const opt = [...storeSel.options].find(o => o.value === p.default_store);
+        if (opt) storeSel.value = p.default_store;
+      }
+    }
+    document.getElementById('itemName')._productId = p._isCustom ? p.id : null;
+  }
+}
+
+// Close combo when clicking outside
+document.addEventListener('click', e => {
+  document.querySelectorAll('.product-combo-list').forEach(list => {
+    if (!list.contains(e.target) && e.target.id !== 'itemName' && e.target.id !== 'custItemName' && e.target.id !== 'custSkladName') {
+      list.classList.add('hidden');
+    }
+  });
+});
 
 // ══════════════════════════════════════════════════════════
 // DATA MANAGEMENT (Správa dat)
@@ -1487,6 +2108,15 @@ function authedFetch(path, options = {}) {
   });
 }
 
+async function dbGet(path) {
+  const res = await authedFetch(path, { method: 'GET' });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `GET ${path}: HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
 async function dbPost(path, body) {
   const res = await authedFetch(path, { method: 'POST', body: JSON.stringify(body) });
   if (!res.ok) {
@@ -1668,6 +2298,8 @@ async function showApp() {
 
   const ok = await refreshAllFromCloud();
   renderAll();
+  loadSavedCustomProducts();
+  loadHiddenSubcategories();
   if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
   if (STATE.currentMenu?.fetchedAt) {
     document.getElementById('lastCheck').textContent =

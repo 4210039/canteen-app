@@ -16,7 +16,7 @@
  */
 const express = require('express');
 const { createClient } = require('@supabase/supabase-js');
-const { isDbConfigured } = require('./db/supabaseClient');
+const { getSupabase, isDbConfigured } = require('./db/supabaseClient');
 const { requireAuth, requireRole } = require('./authMiddleware');
 const { audit } = require('./audit');
 
@@ -526,6 +526,111 @@ router.delete('/ledger/:orgId/all', requireRole('admin', 'vedouci'), async (req,
   res.json({ ok: true, count });
 });
 
+// ── Products catalogue ────────────────────────────────────────────────────
+
+// GET distinct categories (category_l1 + category_l2) — no individual product names
+// This powers the combobox: users pick a category/subcategory, then name their own product.
+router.get('/products/:orgId', requireAuth, async (req, res) => {
+  const supabase = getSupabase(); // service role — bypass RLS for catalogue read
+  const { orgId } = req.params;
+  const { data, error } = await supabase
+    .from('products')
+    .select('category_l1,category_l2,food_group,default_unit')
+    .or(`org_id.is.null,org_id.eq.${orgId}`)
+    .eq('active', true)
+    .order('category_l1').order('category_l2');
+  if (error) {
+    console.error('[products GET] supabase error:', error);
+    return res.status(500).json({ error: error.message });
+  }
+  // Deduplicate: one entry per unique category_l1 + category_l2
+  const seen = new Set();
+  const categories = (data || []).filter(row => {
+    const key = `${row.category_l1}||${row.category_l2}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  res.json(categories);
+});
+
+// POST create a custom org-specific product (subcategory)
+// Uses service role to bypass RLS — auth is handled by requireAuth middleware above.
+router.post('/products', async (req, res) => {
+  const supabase = getSupabase();
+  const orgId = req.profile?.org_id;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on profile' });
+  const { name, brand, category_l1, category_l2, food_group, default_unit, default_store } = req.body;
+  if (!name || !category_l1 || !category_l2 || !food_group || !default_unit)
+    return res.status(400).json({ error: 'name, category_l1, category_l2, food_group, default_unit required' });
+  const { data, error } = await supabase.from('products').insert({
+    org_id: orgId, name, brand, category_l1, category_l2, food_group, default_unit, default_store, active: true
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'product.create', entity: 'products',
+    description: `Podkategorie přidána: ${category_l2} (${food_group})`, after_json: data });
+  res.json(data);
+});
+
+// DELETE subcategory by food_group + category_l2 (org-specific only)
+router.delete('/products/by-category', async (req, res) => {
+  const { org_id, food_group, category_l2 } = req.query;
+  if (!org_id || !food_group || !category_l2)
+    return res.status(400).json({ error: 'org_id, food_group, category_l2 required' });
+  const supabase = getSupabase();
+  const { error } = await supabase.from('products')
+    .update({ active: false })
+    .eq('org_id', org_id)
+    .eq('food_group', food_group)
+    .eq('category_l2', category_l2);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// GET hidden subcategories for org (to filter out of grid)
+router.get('/hidden-subcategories/:orgId', async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('hidden_subcategories')
+    .select('food_group,category_l2')
+    .eq('org_id', orgId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST hide a subcategory (global or org-specific)
+// For global ones: inserts into hidden_subcategories
+// For org-specific ones: sets active=false on the products row
+router.post('/hidden-subcategories', async (req, res) => {
+  const { food_group, category_l2 } = req.body;
+  const orgId = req.profile?.org_id;
+  if (!orgId || !food_group || !category_l2)
+    return res.status(400).json({ error: 'org_id, food_group, category_l2 required' });
+  const supabase = getSupabase();
+
+  // Try to soft-delete org-specific product first
+  const { data: orgProduct } = await supabase.from('products')
+    .select('id').eq('org_id', orgId).eq('food_group', food_group).eq('category_l2', category_l2).single();
+  if (orgProduct) {
+    await supabase.from('products').update({ active: false }).eq('id', orgProduct.id);
+  } else {
+    // Global product — hide via exclusion table
+    await supabase.from('hidden_subcategories').upsert({ org_id: orgId, food_group, category_l2 });
+  }
+  res.json({ ok: true });
+});
+
+// DELETE a custom product (org-specific only, not global)
+router.delete('/products/:id', requireRole('admin', 'vedouci'), async (req, res) => {
+  const supabase = userScopedClient(req);
+  const { id } = req.params;
+  const { error } = await supabase.from('products')
+    .update({ active: false }).eq('id', id).not('org_id', 'is', null);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 // ── Clear all org data (admin only) ──────────────────────────
 // Deletes all inventory_ledger, attendance, menus, shopping_lists
 // rows for the org. Used by the "Smazat všechna data" button.
@@ -545,6 +650,44 @@ router.delete('/clear/:orgId', requireRole('admin', 'vedouci'), async (req, res)
     entity: 'all',
     description: `Smazána všechna data org ${orgId}`,
   });
+  res.json({ ok: true });
+});
+
+// ══════════════════════════════════════════════════════════
+// CUSTOM PRODUCTS — persistent user-defined shopping items
+// ══════════════════════════════════════════════════════════
+
+router.get('/custom-products/:orgId', async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = userScopedClient(req);
+  const { data, error } = await supabase
+    .from('custom_products')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('name', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+router.post('/custom-products', async (req, res) => {
+  const { org_id, name, food_group, qty, unit, price, supplier } = req.body;
+  if (!org_id || !name) return res.status(400).json({ error: 'org_id and name are required' });
+  const supabase = userScopedClient(req);
+  const { data, error } = await supabase
+    .from('custom_products')
+    .insert([{ org_id, name, food_group: food_group || null, qty: qty || 1, unit: unit || 'ks', price: price || 0, supplier: supplier || null }])
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'custom_product.create', entity: 'custom_products', description: `Přidán vlastní produkt: ${name}` });
+  res.json(data);
+});
+
+router.delete('/custom-products/:id', async (req, res) => {
+  const { id } = req.params;
+  const supabase = userScopedClient(req);
+  const { error } = await supabase.from('custom_products').delete().eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
 });
 
