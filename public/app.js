@@ -545,7 +545,7 @@ function renderNakupGrid(rows) {
       const subRows = subs.map(sub => {
         const subKey = `${r.rowKey}__${sub}`;
         return `
-          <div class="rezerva-row rezerva-subrow" data-rowkey="${escHtml(r.rowKey)}" data-subkey="${escHtml(subKey)}" data-base-grams="${baseNeedGrams}" data-sub="${escHtml(sub)}">
+          <div class="rezerva-row rezerva-subrow" data-rowkey="${escHtml(r.rowKey)}" data-subkey="${escHtml(subKey)}" data-base-grams="${baseNeedGrams}" data-sub="${escHtml(sub)}" data-foodgroup="${escHtml(r.key)}">
             <div class="rezerva-label">
               <span class="rezerva-name rezerva-subname">${escHtml(sub)}</span>
             </div>
@@ -555,7 +555,7 @@ function renderNakupGrid(rows) {
               <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
                 ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
               </select>
-              <button class="rezerva-del-btn" title="Odstranit podkategorii" onclick="nakupDeleteSubcategory(this,'${escHtml(r.key)}','${escHtml(sub)}')">
+              <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">
                 <i class="ti ti-trash" aria-hidden="true"></i>
               </button>
             </div>
@@ -633,6 +633,7 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
   newRow.dataset.subkey   = subKey;
   newRow.dataset.baseGrams = baseGrams;
   newRow.dataset.sub      = name;
+  newRow.dataset.foodgroup = foodGroup;
   newRow.innerHTML = `
     <div class="rezerva-label">
       <span class="rezerva-name rezerva-subname">${escHtml(name)}</span>
@@ -645,8 +646,7 @@ async function nakupSaveSubcategory(safeKey, rowKey, foodGroup) {
       <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
         ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
       </select>
-      <button class="rezerva-del-btn" title="Odstranit podkategorii"
-              onclick="nakupDeleteSubcategory(this,'${escHtml(foodGroup)}','${escHtml(name)}')">
+      <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">
         <i class="ti ti-trash" aria-hidden="true"></i>
       </button>
     </div>`;
@@ -694,9 +694,11 @@ async function loadHiddenSubcategories() {
   }
 }
 
-async function nakupDeleteSubcategory(btn, foodGroup, subName) {
-  const row = btn.closest('.rezerva-subrow');
+async function nakupDeleteSubcategory(row) {
   if (!row) return;
+  const foodGroup = row.dataset.foodgroup;
+  const subName   = row.dataset.sub;
+  if (!foodGroup || !subName) return;
 
   // Remove from DOM immediately
   row.remove();
@@ -718,6 +720,16 @@ async function nakupDeleteSubcategory(btn, foodGroup, subName) {
     toast(`Odstraněno z pohledu, ale uložení selhalo: ${e.message}`, 'warning');
   }
 }
+
+// Single delegated listener for all subcategory delete buttons (avoids
+// building onclick="" strings with interpolated text, which breaks when
+// names contain apostrophes or quotes)
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action="del-subcategory"]');
+  if (!btn) return;
+  const row = btn.closest('.rezerva-subrow');
+  nakupDeleteSubcategory(row);
+});
 
 // Returns true if a subcategory is hidden for this org
 function isSubcategoryHidden(foodGroup, category_l2) {
