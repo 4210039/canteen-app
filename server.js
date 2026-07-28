@@ -11,7 +11,21 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve /public with caching fully disabled. This app has no versioned/hashed
+// filenames (app.js, style.css, index.html keep the same name across every
+// deploy), so any layer that's allowed to cache them — the browser, or
+// Vercel's edge CDN in front of a stable domain like the production alias —
+// can end up serving an old copy after a new deployment goes live, with no
+// visible sign anything is wrong (a hard refresh or incognito window does NOT
+// bypass a CDN-level cache, only browser-level cache/cookies). Forcing
+// no-store means every request always goes all the way to the origin.
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
 
 // ── Database-backed persistence routes ─────────────────────────────────────
 // All routes under /api/db/* — see server/dbRoutes.js. Returns 503 with a
@@ -95,6 +109,9 @@ app.get('/api/health', (req, res) => {
 
 // ── Fallback: serve SPA ────────────────────────────────────────────────────
 app.get('*', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 

@@ -67,7 +67,7 @@ input, select { font: inherit; }
 .tabs {
   background: var(--white);
   border-bottom: 2px solid var(--border);
-  display: flex; overflow-x: auto;
+  display: flex; flex-wrap: wrap;
   max-width: 100%; position: sticky; top: 56px; z-index: 90;
   box-shadow: var(--shadow);
 }

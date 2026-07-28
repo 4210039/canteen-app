@@ -21,10 +21,10 @@ window.AUTH = (function () {
   // reporting or settings (matches the Sprint 2 role definition).
   // tester: sees/uses everything EXCEPT audit log and settings.
   const TAB_PERMISSIONS = {
-    admin:    ['menu', 'attendance', 'offers', 'nakup', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
-    vedouci:  ['menu', 'attendance', 'offers', 'nakup', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
-    kucharka: ['menu', 'attendance', 'offers', 'nakup', 'warehouse'],
-    tester:   ['menu', 'attendance', 'offers', 'nakup', 'warehouse', 'finance', 'norms'],
+    admin:    ['menu', 'recepty', 'attendance', 'offers', 'nakup', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
+    vedouci:  ['menu', 'recepty', 'attendance', 'offers', 'nakup', 'warehouse', 'finance', 'norms', 'audit', 'settings'],
+    kucharka: ['menu', 'recepty', 'attendance', 'offers', 'nakup', 'warehouse'],
+    tester:   ['menu', 'recepty', 'attendance', 'offers', 'nakup', 'warehouse', 'finance', 'norms'],
   };
 
   async function init() {
