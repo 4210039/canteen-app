@@ -146,8 +146,44 @@ input, select { font: inherit; }
   font-size: .75rem; font-weight: 700; text-transform: uppercase;
   color: var(--green); letter-spacing: .06em; margin-bottom: .4rem;
 }
-.day-card .meal { font-size: .82rem; color: var(--ink); margin-bottom: .2rem; }
+.day-card .meal {
+  font-size: .82rem; color: var(--ink); margin-bottom: .2rem;
+  display: flex; align-items: center; justify-content: space-between; gap: .4rem;
+}
+.day-card .meal-dish { flex: 1; }
+.meal-recipe-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: .8rem; padding: 0 .15rem; opacity: .55; flex-shrink: 0;
+  transition: opacity .15s, transform .15s;
+}
+.meal-recipe-btn:hover { opacity: 1; transform: scale(1.15); }
 .day-card .meal-label { font-size: .72rem; color: var(--ink-light); }
+
+/* ── Recepty tab ──────────────────────────────────────────── */
+.recipe-list { display: flex; flex-direction: column; gap: .5rem; }
+.recipe-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: 8px; padding: .1rem .6rem .1rem 0;
+}
+.recipe-card-main {
+  flex: 1; display: flex; align-items: center; justify-content: space-between;
+  padding: .6rem .85rem; cursor: pointer; gap: 1rem;
+}
+.recipe-card-main:hover .recipe-card-name { color: var(--primary, var(--green)); }
+.recipe-card-name { font-weight: 600; font-size: .9rem; }
+.recipe-card-meta { font-size: .78rem; flex-shrink: 0; }
+
+.recipe-ing-row {
+  display: grid; grid-template-columns: 1.6fr 1.1fr 1.1fr .7fr .65fr auto;
+  gap: .4rem; align-items: center; margin-bottom: .4rem;
+}
+.recipe-ing-row input, .recipe-ing-row select {
+  padding: .35rem .5rem; border: 1.5px solid var(--border); border-radius: 6px;
+  font-size: .82rem; background: var(--surface-2, #fff); color: var(--ink);
+  width: 100%;
+}
+.rezerva-recipe-hint { font-size: .72rem; color: var(--primary, var(--green)); margin-left: .4rem; }
 
 /* ── Ingredients ──────────────────────────────────────────── */
 .section-title {

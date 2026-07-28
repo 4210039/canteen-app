@@ -107,6 +107,7 @@
   <!-- ── Nav tabs ── -->
   <nav class="tabs" id="appNav">
     <button class="tab active" data-tab="menu">📋 Jídelníček</button>
+    <button class="tab" data-tab="recepty">🍽️ Recepty</button>
     <button class="tab" data-tab="attendance">👦 Docházka</button>
     <button class="tab" data-tab="offers">🏷️ Akce</button>
     <button class="tab" data-tab="nakup">🛒 Nákup</button>
@@ -182,6 +183,51 @@
       <div id="savedMenuWeekList" class="saved-week-list"></div>
     </div>
     <div id="savedMenuDetail"></div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       TAB: Recepty
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tab-panel" id="tab-recepty">
+    <div class="panel-header">
+      <h2>🍽️ Recepty</h2>
+      <div class="panel-actions">
+        <button class="btn btn-primary" onclick="openRecipeEditor(null)">+ Nový recept</button>
+      </div>
+    </div>
+    <p class="muted" style="margin-bottom:1rem">
+      Definujte, co je skutečně v jídle, jednou — Nákup pak sám navrhne množství
+      v odpovídajících podkategoriích podle docházky daného týdne.
+    </p>
+
+    <div id="recipeList" class="recipe-list"></div>
+
+    <!-- Recipe editor -->
+    <div id="recipeEditor" class="card form-card hidden" style="margin-top:1.25rem">
+      <h3 id="recipeEditorTitle">Nový recept</h3>
+      <div class="form-group">
+        <label>Název jídla (musí přesně odpovídat textu v jídelníčku)</label>
+        <input type="text" id="recipeEditorDishName" placeholder="např. Žitný chléb se zeleninovou pěnou" />
+      </div>
+      <div class="form-group">
+        <label>Poznámka (nepovinné)</label>
+        <input type="text" id="recipeEditorNotes" placeholder="např. sezónní varianta" />
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:1rem 0 .5rem">
+        <label style="margin:0">Ingredience (na 1 porci)</label>
+        <button class="btn btn-secondary btn-sm" id="btnSuggestRecipeIngredients" onclick="suggestRecipeIngredientsFromAI()">🤖 Navrhnout ingredience</button>
+      </div>
+      <div id="recipeEditorIngredients"></div>
+      <button class="rezerva-add-row" style="border:1px dashed var(--border);border-radius:8px;margin-top:.5rem" onclick="addRecipeEditorIngredientRow()">
+        <span>+ Přidat ingredienci</span>
+      </button>
+
+      <div class="form-actions" style="margin-top:1.25rem">
+        <button class="btn btn-primary" onclick="saveRecipeEditor()">Uložit recept</button>
+        <button class="btn btn-ghost" onclick="closeRecipeEditor()">Zrušit</button>
+      </div>
+    </div>
   </section>
 
   <!-- ══════════════════════════════════════════════════════════

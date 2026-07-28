@@ -691,4 +691,92 @@ router.delete('/custom-products/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ══════════════════════════════════════════════════════════
+// RECIPES — dish → ingredient breakdown, feeds Nákup prefill
+// ══════════════════════════════════════════════════════════
+
+// GET all recipes for org, each with its ingredients nested
+router.get('/recipes/:orgId', async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = getSupabase();
+  const { data: recipes, error: rErr } = await supabase
+    .from('recipes').select('*').eq('org_id', orgId).order('dish_name');
+  if (rErr) return res.status(500).json({ error: rErr.message });
+  if (!recipes.length) return res.json([]);
+
+  const { data: ingredients, error: iErr } = await supabase
+    .from('recipe_ingredients').select('*')
+    .in('recipe_id', recipes.map(r => r.id))
+    .order('sort_order');
+  if (iErr) return res.status(500).json({ error: iErr.message });
+
+  const byRecipe = {};
+  for (const ing of ingredients) (byRecipe[ing.recipe_id] ??= []).push(ing);
+  res.json(recipes.map(r => ({ ...r, ingredients: byRecipe[r.id] || [] })));
+});
+
+// POST create a recipe with its ingredients in one call
+router.post('/recipes', async (req, res) => {
+  const orgId = req.profile?.org_id;
+  const { dish_name, notes, ingredients } = req.body;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on profile' });
+  if (!dish_name) return res.status(400).json({ error: 'dish_name required' });
+  const supabase = getSupabase();
+
+  const { data: recipe, error: rErr } = await supabase
+    .from('recipes').insert({ org_id: orgId, dish_name, notes: notes || null }).select().single();
+  if (rErr) return res.status(500).json({ error: rErr.message });
+
+  const rows = (ingredients || []).map((ing, i) => ({
+    recipe_id: recipe.id, name: ing.name, food_group: ing.food_group || null,
+    category_l2: ing.category_l2 || null, qty_per_portion: ing.qty_per_portion || 0,
+    unit: ing.unit || 'g', sort_order: i,
+  }));
+  let savedIngredients = [];
+  if (rows.length) {
+    const { data, error: iErr } = await supabase.from('recipe_ingredients').insert(rows).select();
+    if (iErr) return res.status(500).json({ error: iErr.message });
+    savedIngredients = data;
+  }
+  await audit(req, { action: 'recipe.create', entity: 'recipes', description: `Recept vytvořen: ${dish_name}` });
+  res.json({ ...recipe, ingredients: savedIngredients });
+});
+
+// PUT update a recipe — replaces all its ingredients wholesale (simplest
+// correct semantics for a form-driven edit: delete old rows, insert new ones)
+router.put('/recipes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { dish_name, notes, ingredients } = req.body;
+  const supabase = getSupabase();
+
+  const { error: uErr } = await supabase.from('recipes')
+    .update({ dish_name, notes: notes || null }).eq('id', id);
+  if (uErr) return res.status(500).json({ error: uErr.message });
+
+  const { error: dErr } = await supabase.from('recipe_ingredients').delete().eq('recipe_id', id);
+  if (dErr) return res.status(500).json({ error: dErr.message });
+
+  const rows = (ingredients || []).map((ing, i) => ({
+    recipe_id: id, name: ing.name, food_group: ing.food_group || null,
+    category_l2: ing.category_l2 || null, qty_per_portion: ing.qty_per_portion || 0,
+    unit: ing.unit || 'g', sort_order: i,
+  }));
+  let savedIngredients = [];
+  if (rows.length) {
+    const { data, error: iErr } = await supabase.from('recipe_ingredients').insert(rows).select();
+    if (iErr) return res.status(500).json({ error: iErr.message });
+    savedIngredients = data;
+  }
+  res.json({ id, dish_name, notes, ingredients: savedIngredients });
+});
+
+// DELETE a recipe (ingredients cascade via FK)
+router.delete('/recipes/:id', async (req, res) => {
+  const { id } = req.params;
+  const supabase = getSupabase();
+  const { error } = await supabase.from('recipes').delete().eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 module.exports = router;

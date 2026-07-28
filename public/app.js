@@ -35,6 +35,7 @@ const STATE = {
   products: [],              // product catalogue cache [{id,name,brand,category_l1,category_l2,food_group,default_unit,default_store}]
   savedCustomProducts: [],   // persistent custom products from DB, shown as quick-add chips in Nákup
   hiddenSubcategories: [],   // [{food_group, category_l2}] — excluded from Nákup grid per org
+  recipes: [],               // [{id, dish_name, notes, ingredients:[{name,food_group,category_l2,qty_per_portion,unit}]}]
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -179,6 +180,7 @@ function initTabs() {
       // Lazy-load tab-specific data
       if (btn.dataset.tab === 'audit') loadAuditLog();
       if (btn.dataset.tab === 'nakup') loadNakupWeekShortcuts();
+      if (btn.dataset.tab === 'recepty') renderRecipeList();
     });
   });
 }
@@ -190,6 +192,7 @@ function switchTab(name) {
     p.classList.toggle('active', p.id === 'tab-' + name);
   });
   if (name === 'nakup') loadNakupWeekShortcuts();
+  if (name === 'recepty') renderRecipeList();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -328,9 +331,16 @@ function renderMenu() {
   for (const day of STATE.currentMenu.days) {
     const card = document.createElement('div');
     card.className = 'day-card';
-    const meals = (day.meals || []).map(m =>
-      `<div class="meal-label">${escHtml(m.label)}</div><div class="meal">${escHtml(m.dish)}</div>`
-    ).join('');
+    const meals = (day.meals || []).map(m => {
+      const hasRecipe = findRecipeByDishName(m.dish);
+      const icon = hasRecipe ? '📖' : '➕';
+      const title = hasRecipe ? 'Zobrazit/upravit recept' : 'Vytvořit recept pro toto jídlo';
+      return `<div class="meal-label">${escHtml(m.label)}</div>
+        <div class="meal">
+          <span class="meal-dish">${escHtml(m.dish)}</span>
+          <button class="meal-recipe-btn" title="${title}" data-action="open-recipe-for-dish" data-dish="${escHtml(m.dish)}">${icon}</button>
+        </div>`;
+    }).join('');
     card.innerHTML = `<div class="day-name">${escHtml(day.name)} ${escHtml(day.date || '')}</div>${meals}`;
     grid.appendChild(card);
   }
@@ -501,6 +511,7 @@ function renderNakupGrid(rows) {
   const smartOn = getSmartBuyMode();
   const { rates: rateByRowKey } = computeConsumptionRatePerRowKey(28);
   const bufferDays = getYearEndTaperedBufferDays();
+  const recipeSuggested = computeRecipeSuggestedGrams(window.LAST_CALC?.weekKey);
 
   // Build subcategory map from loaded categories: food_group -> [category_l2, ...]
   // Filter out any hidden by this org
@@ -544,16 +555,25 @@ function renderNakupGrid(rows) {
       // ── Subcategory rows ─────────────────────────────────
       const subRows = subs.map(sub => {
         const subKey = `${r.rowKey}__${sub}`;
+        const suggestedGrams = recipeSuggested[`${r.key}||${sub}`] || 0;
+        const suggestedQty = suggestedGrams > 0
+          ? (suggestedGrams >= 1000 ? +(suggestedGrams / 1000).toFixed(2) : Math.round(suggestedGrams))
+          : 0;
+        const suggestedUnit = suggestedGrams >= 1000 ? 'kg' : 'g';
+        const hint = suggestedGrams > 0
+          ? `<span class="muted rezerva-recipe-hint" title="Odhad podle uložených receptů a docházky tohoto týdne">📖 z receptu</span>`
+          : '';
         return `
           <div class="rezerva-row rezerva-subrow" data-rowkey="${escHtml(r.rowKey)}" data-subkey="${escHtml(subKey)}" data-base-grams="${baseNeedGrams}" data-sub="${escHtml(sub)}" data-foodgroup="${escHtml(r.key)}">
             <div class="rezerva-label">
               <span class="rezerva-name rezerva-subname">${escHtml(sub)}</span>
+              ${hint}
             </div>
             <div class="rezerva-input-wrap">
               <span class="muted" style="font-size:.72rem">množství:</span>
-              <input type="number" class="rezerva-val-input rezerva-sub-input" data-key="${escHtml(subKey)}" data-rowkey="${escHtml(r.rowKey)}" value="0" min="0" step="0.1" />
+              <input type="number" class="rezerva-val-input rezerva-sub-input" data-key="${escHtml(subKey)}" data-rowkey="${escHtml(r.rowKey)}" value="${suggestedQty}" min="0" step="0.1" />
               <select class="rezerva-unit-select" data-key="${escHtml(subKey)}">
-                ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}">${u}</option>`).join('')}
+                ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}" ${u === suggestedUnit ? 'selected' : ''}>${u}</option>`).join('')}
               </select>
               <button class="rezerva-del-btn" title="Odstranit podkategorii" data-action="del-subcategory">×</button>
             </div>
@@ -732,6 +752,278 @@ function isSubcategoryHidden(foodGroup, category_l2) {
     h => h.food_group === foodGroup && h.category_l2 === category_l2
   );
 }
+
+// ══════════════════════════════════════════════════════════
+// RECIPES — dish → ingredients, feeds Nákup subcategory prefill
+// ══════════════════════════════════════════════════════════
+
+async function loadRecipes() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  try {
+    STATE.recipes = await dbGet(`/api/db/recipes/${orgId}`);
+  } catch (e) {
+    console.warn('Nepodařilo se načíst recepty:', e);
+    STATE.recipes = [];
+  }
+  renderRecipeList();
+}
+
+// Exact, case-insensitive, trimmed match — deliberately simple for now.
+// If this turns out to miss too many real dishes (menu wording drifts
+// week to week), fuzzy matching is the next step, not a rewrite.
+function findRecipeByDishName(dishName) {
+  if (!dishName) return null;
+  const norm = dishName.trim().toLowerCase();
+  return (STATE.recipes || []).find(r => r.dish_name.trim().toLowerCase() === norm) || null;
+}
+
+// For the current week's menu, sum every recipe ingredient's contribution
+// (qty_per_portion × attendance for that day+meal) into grams, keyed by
+// "foodGroup||category_l2" — only for ingredients tagged with BOTH, since
+// that's what lets it line up with an existing Nákup subcategory row.
+function computeRecipeSuggestedGrams(weekStr) {
+  const totals = {}; // key: `${food_group}||${category_l2}` -> grams
+  const days = STATE.currentMenu?.days || [];
+  const weekAttendance = attendanceData[weekStr] || {};
+  if (!days.length) return totals;
+
+  days.forEach((day, dayIndex) => {
+    const dayAttendance = weekAttendance[dayIndex] || {};
+    (day.meals || []).forEach(m => {
+      const mealDef = MEALS_LIST.find(ml => ml.label === m.label);
+      if (!mealDef) return;
+      const childCount = parseInt(dayAttendance[mealDef.key]) || 0;
+      if (!childCount) return;
+      const recipe = findRecipeByDishName(m.dish);
+      if (!recipe) return;
+      (recipe.ingredients || []).forEach(ing => {
+        if (!ing.food_group || !ing.category_l2) return; // unmapped — can't place it in the grid
+        const grams = toGrams(ing.qty_per_portion, ing.unit) * childCount;
+        const key = `${ing.food_group}||${ing.category_l2}`;
+        totals[key] = (totals[key] || 0) + grams;
+      });
+    });
+  });
+  return totals;
+}
+
+// ── Recepty tab: list + editor ──────────────────────────────
+
+function renderRecipeList() {
+  const container = document.getElementById('recipeList');
+  if (!container) return;
+  const recipes = STATE.recipes || [];
+  if (!recipes.length) {
+    container.innerHTML = `<div class="empty-state"><span class="empty-icon">🍽️</span><p>Zatím žádné recepty. Klikněte na „➕" u jídla v Jídelníčku, nebo přidejte recept níže.</p></div>`;
+    return;
+  }
+  container.innerHTML = recipes.map(r => `
+    <div class="recipe-card">
+      <div class="recipe-card-main" data-action="edit-recipe" data-id="${escHtml(r.id)}">
+        <span class="recipe-card-name">${escHtml(r.dish_name)}</span>
+        <span class="muted recipe-card-meta">${(r.ingredients || []).length} ingrediencí</span>
+      </div>
+      <button class="rezerva-del-btn" title="Odstranit recept" data-action="delete-recipe" data-id="${escHtml(r.id)}">×</button>
+    </div>`).join('');
+}
+
+let _recipeEditorIngredients = []; // working copy while the form is open
+let _recipeEditorId = null;        // null = creating new, else editing existing
+
+function openRecipeEditor(recipe) {
+  _recipeEditorId = recipe?.id || null;
+  _recipeEditorIngredients = recipe?.ingredients?.length
+    ? recipe.ingredients.map(i => ({ ...i }))
+    : [];
+  document.getElementById('recipeEditorDishName').value = recipe?.dish_name || '';
+  document.getElementById('recipeEditorNotes').value = recipe?.notes || '';
+  document.getElementById('recipeEditorTitle').textContent = recipe ? 'Upravit recept' : 'Nový recept';
+  document.getElementById('recipeEditor').classList.remove('hidden');
+  renderRecipeEditorIngredients();
+  document.getElementById('recipeEditorDishName').focus();
+}
+
+function closeRecipeEditor() {
+  document.getElementById('recipeEditor').classList.add('hidden');
+  _recipeEditorId = null;
+  _recipeEditorIngredients = [];
+}
+
+function renderRecipeEditorIngredients() {
+  const container = document.getElementById('recipeEditorIngredients');
+  const groupOpts = Object.entries(window.NORMS.foodGroups)
+    .map(([key, g]) => `<option value="${key}">${escHtml(g.label)}</option>`).join('');
+
+  container.innerHTML = _recipeEditorIngredients.map((ing, idx) => {
+    const subOpts = [...new Set(
+      (STATE.products || [])
+        .filter(p => p.food_group === ing.food_group && p.category_l2 && !isSubcategoryHidden(ing.food_group, p.category_l2))
+        .map(p => p.category_l2)
+    )].sort();
+    return `
+      <div class="recipe-ing-row" data-idx="${idx}">
+        <input type="text" class="recipe-ing-name" placeholder="Ingredience, např. mrkev" value="${escHtml(ing.name || '')}" data-field="name" data-idx="${idx}" />
+        <select class="recipe-ing-group" data-field="food_group" data-idx="${idx}">
+          <option value="">— skupina —</option>${groupOpts}
+        </select>
+        <select class="recipe-ing-sub" data-field="category_l2" data-idx="${idx}">
+          <option value="">— podkategorie —</option>
+          ${subOpts.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('')}
+        </select>
+        <input type="number" class="recipe-ing-qty" placeholder="0" min="0" step="0.1" value="${ing.qty_per_portion || ''}" data-field="qty_per_portion" data-idx="${idx}" />
+        <select class="recipe-ing-unit" data-field="unit" data-idx="${idx}">
+          ${UNIT_OPTIONS.filter(u => u !== '%').map(u => `<option value="${u}" ${ing.unit === u ? 'selected' : ''}>${u}</option>`).join('')}
+        </select>
+        <button class="rezerva-del-btn" data-action="remove-recipe-ing" data-idx="${idx}" title="Odstranit ingredienci">×</button>
+      </div>`;
+  }).join('') || `<p class="muted" style="font-size:.85rem">Zatím žádné ingredience — přidejte manuálně nebo zkuste 🤖 návrh.</p>`;
+
+  // Re-apply select values (innerHTML rebuild loses selection state for food_group/category_l2)
+  _recipeEditorIngredients.forEach((ing, idx) => {
+    const row = container.querySelector(`.recipe-ing-row[data-idx="${idx}"]`);
+    if (!row) return;
+    const grpSel = row.querySelector('.recipe-ing-group');
+    if (grpSel && ing.food_group) grpSel.value = ing.food_group;
+    const subSel = row.querySelector('.recipe-ing-sub');
+    if (subSel && ing.category_l2) subSel.value = ing.category_l2;
+  });
+}
+
+function addRecipeEditorIngredientRow() {
+  _recipeEditorIngredients.push({ name: '', food_group: '', category_l2: '', qty_per_portion: 0, unit: 'g' });
+  renderRecipeEditorIngredients();
+  const container = document.getElementById('recipeEditorIngredients');
+  container.querySelector('.recipe-ing-row:last-child .recipe-ing-name')?.focus();
+}
+
+// Delegated input handler for the dynamic ingredient rows (name/group/qty/unit)
+document.addEventListener('input', (e) => {
+  const idx = e.target.dataset.idx;
+  const field = e.target.dataset.field;
+  if (idx === undefined || !field || !_recipeEditorIngredients[idx]) return;
+  _recipeEditorIngredients[idx][field] = field === 'qty_per_portion' ? parseFloat(e.target.value) || 0 : e.target.value;
+  // Changing food_group must refresh that row's subcategory options
+  if (field === 'food_group') renderRecipeEditorIngredients();
+});
+document.addEventListener('change', (e) => {
+  const idx = e.target.dataset.idx;
+  const field = e.target.dataset.field;
+  if (idx === undefined || !field || !_recipeEditorIngredients[idx]) return;
+  _recipeEditorIngredients[idx][field] = field === 'qty_per_portion' ? parseFloat(e.target.value) || 0 : e.target.value;
+  if (field === 'food_group') renderRecipeEditorIngredients();
+});
+
+async function suggestRecipeIngredientsFromAI() {
+  const dishName = document.getElementById('recipeEditorDishName').value.trim();
+  if (!dishName) { toast('Nejprve zadejte název jídla.', 'error'); return; }
+  const btn = document.getElementById('btnSuggestRecipeIngredients');
+  btn.disabled = true;
+  btn.textContent = '🤖 Přemýšlím…';
+
+  const groupList = Object.entries(window.NORMS.foodGroups).map(([k, g]) => `${k} (${g.label})`).join(', ');
+
+  try {
+    const res = await fetch('/api/groq', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 1000,
+        messages: [
+          { role: 'system', content: 'Jsi kuchař ve školní jídelně. Vracíš POUZE čisté JSON bez markdown bloků, bez vysvětlení.' },
+          { role: 'user', content: `Jídlo: "${dishName}"\n\nOdhadni typické surové ingredience potřebné na JEDNU porci pro dítě, a jejich množství v gramech nebo mililitrech.\nPro každou ingredienci urči nejpravděpodobnější skupinu potravin z tohoto seznamu klíčů: ${groupList}\n\nVrať POUZE JSON pole (bez markdown, bez vysvětlení):\n[{"name": "mrkev", "food_group": "zelenina", "qty_per_portion": 30, "unit": "g"}]` }
+        ]
+      })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+    const text = data.choices?.[0]?.message?.content || '[]';
+    const clean = text.replace(/```json|```/g, '').trim();
+    const suggested = JSON.parse(clean);
+
+    if (!Array.isArray(suggested) || !suggested.length) throw new Error('Prázdná odpověď');
+
+    // Merge in: keep existing rows, append AI suggestions with category_l2 left
+    // blank on purpose — user assigns the exact existing subcategory manually,
+    // so Nákup prefill only ever matches subcategories that really exist.
+    suggested.forEach(s => {
+      _recipeEditorIngredients.push({
+        name: s.name || '', food_group: s.food_group || '', category_l2: '',
+        qty_per_portion: parseFloat(s.qty_per_portion) || 0, unit: s.unit || 'g',
+      });
+    });
+    renderRecipeEditorIngredients();
+    toast(`Navrženo ${suggested.length} ingrediencí — zkontrolujte a doplňte podkategorie.`, 'success');
+  } catch (e) {
+    toast('Návrh se nepodařilo získat: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 Navrhnout ingredience';
+  }
+}
+
+async function saveRecipeEditor() {
+  const dish_name = document.getElementById('recipeEditorDishName').value.trim();
+  const notes = document.getElementById('recipeEditorNotes').value.trim();
+  if (!dish_name) { toast('Zadejte název jídla.', 'error'); return; }
+
+  const ingredients = _recipeEditorIngredients.filter(i => i.name && i.name.trim());
+  const payload = { dish_name, notes, ingredients };
+
+  try {
+    if (_recipeEditorId) {
+      const updated = await dbPut(`/api/db/recipes/${_recipeEditorId}`, payload);
+      STATE.recipes = STATE.recipes.map(r => r.id === _recipeEditorId ? { ...r, ...updated } : r);
+    } else {
+      const created = await dbPost('/api/db/recipes', payload);
+      STATE.recipes = [...(STATE.recipes || []), created];
+    }
+    renderRecipeList();
+    renderMenu(); // dish icons (📖 vs ➕) may have changed
+    closeRecipeEditor();
+    toast(`Recept „${dish_name}" uložen.`, 'success');
+  } catch (e) {
+    toast('Uložení receptu selhalo: ' + e.message, 'error');
+  }
+}
+
+async function deleteRecipe(id) {
+  STATE.recipes = (STATE.recipes || []).filter(r => r.id !== id);
+  renderRecipeList();
+  renderMenu();
+  try {
+    await dbDelete(`/api/db/recipes/${id}`);
+    toast('Recept odstraněn.', 'success');
+  } catch (e) {
+    toast('Recept odstraněn z pohledu, ale smazání z DB selhalo: ' + e.message, 'warning');
+  }
+}
+
+// Single delegated listener for all Recepty/Menu recipe actions
+document.addEventListener('click', (e) => {
+  const openBtn = e.target.closest('[data-action="open-recipe-for-dish"]');
+  if (openBtn) {
+    const dish = openBtn.dataset.dish;
+    switchTab('recepty');
+    const existing = findRecipeByDishName(dish);
+    openRecipeEditor(existing || { dish_name: dish });
+    return;
+  }
+  const editBtn = e.target.closest('[data-action="edit-recipe"]');
+  if (editBtn) {
+    const recipe = (STATE.recipes || []).find(r => r.id === editBtn.dataset.id);
+    if (recipe) openRecipeEditor(recipe);
+    return;
+  }
+  const delBtn = e.target.closest('[data-action="delete-recipe"]');
+  if (delBtn) { deleteRecipe(delBtn.dataset.id); return; }
+  const removeIngBtn = e.target.closest('[data-action="remove-recipe-ing"]');
+  if (removeIngBtn) {
+    _recipeEditorIngredients.splice(parseInt(removeIngBtn.dataset.idx), 1);
+    renderRecipeEditorIngredients();
+  }
+});
 
 /**
  * Nákup tab: read per-category/subcategory inputs, build cart, render shopping list.
@@ -2300,6 +2592,7 @@ async function showApp() {
   renderAll();
   loadSavedCustomProducts();
   loadHiddenSubcategories();
+  loadRecipes();
   if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
   if (STATE.currentMenu?.fetchedAt) {
     document.getElementById('lastCheck').textContent =
