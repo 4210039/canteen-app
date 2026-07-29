@@ -823,6 +823,23 @@ router.patch('/bookmarked-recipes/:id', async (req, res) => {
   res.json(data);
 });
 
+// DELETE multiple bookmarks by id in one call — used for both "delete
+// selected" (client sends the checked subset) and "delete all" (client
+// sends its full current list). Scoped to the caller's own org as a
+// safety net, since a bulk operation has a much bigger blast radius
+// than the single-row DELETE below if a client ever sent a bad id list.
+router.delete('/bookmarked-recipes/bulk', async (req, res) => {
+  const orgId = req.profile?.org_id;
+  const { ids } = req.body;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on profile' });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids array required' });
+  const supabase = getSupabase();
+  const { error } = await supabase.from('bookmarked_recipes').delete().in('id', ids).eq('org_id', orgId);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'bookmarks.bulk_delete', entity: 'bookmarked_recipes', description: `Smazáno ${ids.length} záložek` });
+  res.json({ ok: true, deleted: ids.length });
+});
+
 // DELETE a bookmark
 router.delete('/bookmarked-recipes/:id', async (req, res) => {
   const { id } = req.params;

@@ -37,6 +37,7 @@ const STATE = {
   hiddenSubcategories: [],   // [{food_group, category_l2}] — excluded from Nákup grid per org
   recipes: [],               // [{id, dish_name, notes, ingredients:[{name,food_group,category_l2,qty_per_portion,unit}]}]
   bookmarkedRecipes: [],      // [{id, title, url, folder_name, recipe_id}] — imported links, searchable before extraction
+  selectedBookmarkIds: new Set(), // checkbox selection, persists across re-renders (search/filter don't clear it)
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -1139,6 +1140,7 @@ function renderBookmarkFolderFilter() {
 
 function renderBookmarkedRecipes() {
   const container = document.getElementById('bookmarkedRecipesList');
+  const toolbar = document.getElementById('bookmarkToolbar');
   if (!container) return;
   renderBookmarkFolderFilter();
 
@@ -1149,15 +1151,41 @@ function renderBookmarkedRecipes() {
   if (query) list = list.filter(b => b.title.toLowerCase().includes(query));
   if (folder) list = list.filter(b => b.folder_name === folder);
 
+  // Toolbar only makes sense once there's at least one bookmark to act on
+  const total = (STATE.bookmarkedRecipes || []).length;
+  if (toolbar) {
+    toolbar.classList.toggle('hidden', total === 0);
+    if (total > 0) {
+      const visibleIds = list.map(b => b.id);
+      const selectedVisible = visibleIds.filter(id => STATE.selectedBookmarkIds.has(id)).length;
+      const selectAllCb = document.getElementById('bookmarkSelectAllCheckbox');
+      if (selectAllCb) {
+        selectAllCb.checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+        selectAllCb.indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
+      }
+      const visCountEl = document.getElementById('bookmarkVisibleCount');
+      if (visCountEl) visCountEl.textContent = visibleIds.length;
+      const selCount = STATE.selectedBookmarkIds.size;
+      const delSelBtn = document.getElementById('btnDeleteSelectedBookmarks');
+      if (delSelBtn) {
+        delSelBtn.textContent = `🗑️ Smazat vybrané (${selCount})`;
+        delSelBtn.disabled = selCount === 0;
+      }
+      const delAllBtn = document.getElementById('btnDeleteAllBookmarks');
+      if (delAllBtn) delAllBtn.textContent = `🗑️ Smazat všechny záložky (${total})`;
+    }
+  }
+
   if (!list.length) {
     container.innerHTML = `<p class="muted" style="font-size:.85rem">${
-      (STATE.bookmarkedRecipes || []).length ? 'Žádné záložky neodpovídají hledání.' : 'Zatím žádné záložky — nahrajte export výše.'
+      total ? 'Žádné záložky neodpovídají hledání.' : 'Zatím žádné záložky — nahrajte export výše.'
     }</p>`;
     return;
   }
 
   container.innerHTML = list.map(b => `
     <div class="bookmark-card">
+      <input type="checkbox" class="bookmark-checkbox" data-bookmark-id="${escHtml(b.id)}" ${STATE.selectedBookmarkIds.has(b.id) ? 'checked' : ''} />
       <div class="bookmark-card-main">
         <a href="${escHtml(b.url)}" target="_blank" rel="noopener noreferrer" class="bookmark-title" title="Otevřít originální stránku">${escHtml(b.title)}</a>
         ${b.folder_name ? `<span class="bookmark-folder-tag">${escHtml(b.folder_name)}</span>` : ''}
@@ -1170,6 +1198,73 @@ function renderBookmarkedRecipes() {
         <button class="rezerva-del-btn" title="Odstranit záložku" data-action="delete-bookmark" data-id="${escHtml(b.id)}">×</button>
       </div>
     </div>`).join('');
+}
+
+// Delegated checkbox handler — separate from the ingredient-row one above,
+// multiple independent listeners on 'change' is fine, they just both fire.
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('bookmark-checkbox')) {
+    toggleBookmarkSelection(e.target.dataset.bookmarkId, e.target.checked);
+  }
+});
+
+function toggleBookmarkSelection(id, checked) {
+  if (checked) STATE.selectedBookmarkIds.add(id);
+  else STATE.selectedBookmarkIds.delete(id);
+  renderBookmarkedRecipes();
+}
+
+// Select-all applies only to whatever the current search/folder filter shows,
+// not the full unfiltered set — matches how filtered select-all normally works.
+function toggleSelectAllBookmarks(checked) {
+  const query = (document.getElementById('bookmarkSearchInput')?.value || '').trim().toLowerCase();
+  const folder = document.getElementById('bookmarkFolderFilter')?.value || '';
+  let list = STATE.bookmarkedRecipes || [];
+  if (query) list = list.filter(b => b.title.toLowerCase().includes(query));
+  if (folder) list = list.filter(b => b.folder_name === folder);
+
+  list.forEach(b => {
+    if (checked) STATE.selectedBookmarkIds.add(b.id);
+    else STATE.selectedBookmarkIds.delete(b.id);
+  });
+  renderBookmarkedRecipes();
+}
+
+async function deleteSelectedBookmarks() {
+  const ids = [...STATE.selectedBookmarkIds];
+  if (!ids.length) return;
+  if (!confirm(`Smazat ${ids.length} vybraných záložek? Tuto akci nelze vrátit zpět.`)) return;
+
+  STATE.bookmarkedRecipes = (STATE.bookmarkedRecipes || []).filter(b => !STATE.selectedBookmarkIds.has(b.id));
+  STATE.selectedBookmarkIds.clear();
+  renderBookmarkedRecipes();
+
+  try {
+    await dbDelete('/api/db/bookmarked-recipes/bulk', { ids });
+    toast(`Smazáno ${ids.length} záložek.`, 'success');
+  } catch (e) {
+    toast('Smazání se částečně nezdařilo: ' + e.message, 'error');
+    loadBookmarkedRecipes(); // resync with server truth — local state may now be wrong
+  }
+}
+
+async function deleteAllBookmarks() {
+  const all = STATE.bookmarkedRecipes || [];
+  if (!all.length) return;
+  if (!confirm(`POSLEDNÍ VAROVÁNÍ: Smazat opravdu VŠECH ${all.length} záložek?\nTato akce je nevratná.`)) return;
+
+  const ids = all.map(b => b.id);
+  STATE.bookmarkedRecipes = [];
+  STATE.selectedBookmarkIds.clear();
+  renderBookmarkedRecipes();
+
+  try {
+    await dbDelete('/api/db/bookmarked-recipes/bulk', { ids });
+    toast(`Smazáno všech ${ids.length} záložek.`, 'success');
+  } catch (e) {
+    toast('Smazání se částečně nezdařilo: ' + e.message, 'error');
+    loadBookmarkedRecipes();
+  }
 }
 
 // Tracks which bookmark (if any) the currently-open recipe editor originated
@@ -2638,8 +2733,11 @@ async function dbPatch(path, body) {
   return await res.json();
 }
 
-async function dbDelete(path) {
-  const res = await authedFetch(path, { method: 'DELETE' });
+async function dbDelete(path, body) {
+  const res = await authedFetch(path, {
+    method: 'DELETE',
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `DELETE ${path}: HTTP ${res.status}`);

@@ -206,6 +206,22 @@ input, select { font: inherit; }
   border-radius: 4px; padding: .1rem .45rem; flex-shrink: 0;
 }
 .bookmark-card-actions { display: flex; align-items: center; gap: .3rem; flex-shrink: 0; }
+.bookmark-checkbox { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary, var(--green)); }
+
+.bookmark-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: .6rem;
+  padding: .5rem .1rem .75rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: .6rem;
+}
+.bookmark-select-all {
+  display: flex; align-items: center; gap: .45rem;
+  font-size: .85rem; color: var(--ink-mid); cursor: pointer; user-select: none;
+}
+.bookmark-select-all input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary, var(--green)); }
+.bookmark-toolbar-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.bookmark-toolbar-actions button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── Ingredients ──────────────────────────────────────────── */
 .section-title {
