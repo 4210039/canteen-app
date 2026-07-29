@@ -202,6 +202,34 @@
 
     <div id="recipeList" class="recipe-list"></div>
 
+    <!-- Bookmarked recipe links — imported, searchable, upgraded on demand -->
+    <div style="margin-top:2rem;padding-top:1.5rem;border-top:1px solid var(--border)">
+      <div class="panel-header" style="margin-bottom:.4rem">
+        <h3 style="margin:0">📑 Moje záložky</h3>
+        <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
+          📥 Nahrát export záložek
+          <input type="file" accept=".html,.htm" style="display:none" onchange="handleBookmarksFileUpload(this)" />
+        </label>
+      </div>
+      <p class="muted" style="font-size:.83rem;margin-bottom:.85rem">
+        Exportujte záložky z prohlížeče (obvykle Nastavení → Záložky → Exportovat záložky) a nahrajte
+        výsledný HTML soubor. Odkazy jsou hned prohledatelné; ingredience se stáhnou a odhadnou
+        až ve chvíli, kdy recept skutečně potřebujete.
+      </p>
+
+      <div style="display:flex;gap:.6rem;margin-bottom:.85rem;flex-wrap:wrap">
+        <input type="text" id="bookmarkSearchInput" placeholder="🔍 Hledat podle názvu…"
+               oninput="renderBookmarkedRecipes()"
+               style="flex:1;min-width:200px;padding:.5rem .7rem;border:1.5px solid var(--border);border-radius:8px;font-size:.88rem" />
+        <select id="bookmarkFolderFilter" onchange="renderBookmarkedRecipes()"
+                style="padding:.5rem .7rem;border:1.5px solid var(--border);border-radius:8px;font-size:.88rem">
+          <option value="">Všechny složky</option>
+        </select>
+      </div>
+
+      <div id="bookmarkedRecipesList" class="bookmark-list"></div>
+    </div>
+
     <!-- Recipe editor -->
     <div id="recipeEditor" class="card form-card hidden" style="margin-top:1.25rem">
       <h3 id="recipeEditorTitle">Nový recept</h3>

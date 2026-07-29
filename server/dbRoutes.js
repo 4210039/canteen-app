@@ -779,4 +779,57 @@ router.delete('/recipes/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ══════════════════════════════════════════════════════════
+// BOOKMARKED RECIPES — imported links, searchable before
+// any ingredient extraction happens; recipe_id set once upgraded
+// ══════════════════════════════════════════════════════════
+
+// GET all bookmarked links for org (full list — filtering happens client-side,
+// same pattern as products/recipes, since counts here are realistically
+// in the hundreds, not a scale that needs server-side search)
+router.get('/bookmarked-recipes/:orgId', async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('bookmarked_recipes').select('*').eq('org_id', orgId).order('title');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST bulk-insert parsed bookmarks in one call
+router.post('/bookmarked-recipes/bulk', async (req, res) => {
+  const orgId = req.profile?.org_id;
+  const { bookmarks } = req.body;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on profile' });
+  if (!Array.isArray(bookmarks) || !bookmarks.length) return res.status(400).json({ error: 'bookmarks array required' });
+  const supabase = getSupabase();
+  const rows = bookmarks
+    .filter(b => b.title && b.url)
+    .map(b => ({ org_id: orgId, title: b.title.slice(0, 500), url: b.url.slice(0, 2000), folder_name: b.folder_name || null }));
+  const { data, error } = await supabase.from('bookmarked_recipes').insert(rows).select();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'bookmarks.import', entity: 'bookmarked_recipes', description: `Naimportováno ${data.length} záložek` });
+  res.json(data);
+});
+
+// PATCH link a bookmark to the recipe created from it
+router.patch('/bookmarked-recipes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { recipe_id } = req.body;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('bookmarked_recipes').update({ recipe_id }).eq('id', id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE a bookmark
+router.delete('/bookmarked-recipes/:id', async (req, res) => {
+  const { id } = req.params;
+  const supabase = getSupabase();
+  const { error } = await supabase.from('bookmarked_recipes').delete().eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 module.exports = router;
