@@ -158,6 +158,17 @@ input, select { font: inherit; }
 }
 .meal-recipe-btn:hover { opacity: 1; transform: scale(1.15); }
 .day-card .meal-label { font-size: .72rem; color: var(--ink-light); }
+.meal-suggestion-row { margin: -.05rem 0 .35rem; }
+.meal-suggest-btn {
+  display: inline-block; max-width: 100%;
+  background: var(--bg-accent, #eef4ff); border: 1px dashed var(--border-accent, var(--primary));
+  border-radius: 6px; padding: .15rem .45rem;
+  font-size: .68rem; color: var(--text-accent, var(--primary));
+  cursor: pointer; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background .15s;
+}
+.meal-suggest-btn:hover { background: var(--bg-accent-hover, #dde9ff); }
 
 /* ── Recepty tab ──────────────────────────────────────────── */
 .recipe-list { display: flex; flex-direction: column; gap: .5rem; }

@@ -770,6 +770,36 @@ router.put('/recipes/:id', async (req, res) => {
   res.json({ id, dish_name, notes, ingredients: savedIngredients });
 });
 
+// PATCH add one alias to a recipe — deliberately separate from the wholesale
+// PUT above, which replaces ingredients unconditionally. This route only
+// ever appends a string to the aliases array; it can never touch
+// ingredients, so accepting a similarity suggestion in the UI is safe to
+// fire without the caller needing to also resend the full ingredient list.
+router.patch('/recipes/:id/add-alias', async (req, res) => {
+  const { id } = req.params;
+  const { alias } = req.body;
+  if (!alias || !alias.trim()) return res.status(400).json({ error: 'alias required' });
+  const supabase = getSupabase();
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from('recipes').select('aliases').eq('id', id).single();
+  if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+  const current = existing.aliases || [];
+  const trimmed = alias.trim();
+  if (current.some(a => a.toLowerCase() === trimmed.toLowerCase())) {
+    // Already there — no-op, just return current state so the client can proceed either way.
+    const { data: unchanged } = await supabase.from('recipes').select('*').eq('id', id).single();
+    return res.json(unchanged);
+  }
+
+  const { data, error } = await supabase
+    .from('recipes').update({ aliases: [...current, trimmed] }).eq('id', id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'recipe.add_alias', entity: 'recipes', description: `Alias přidán k receptu: "${trimmed}"` });
+  res.json(data);
+});
+
 // DELETE a recipe (ingredients cascade via FK)
 router.delete('/recipes/:id', async (req, res) => {
   const { id } = req.params;

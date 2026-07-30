@@ -337,11 +337,21 @@ function renderMenu() {
       const hasRecipe = findRecipeByDishName(m.dish);
       const icon = hasRecipe ? '📖' : '➕';
       const title = hasRecipe ? 'Zobrazit/upravit recept' : 'Vytvořit recept pro toto jídlo';
+      const similar = !hasRecipe ? findSimilarRecipe(m.dish) : null;
+      const suggestion = similar
+        ? `<div class="meal-suggestion-row">
+             <button class="meal-suggest-btn" title="Použít tento recept i pro toto jídlo"
+                     data-action="accept-similar-recipe" data-dish="${escHtml(m.dish)}" data-recipe-id="${escHtml(similar.id)}">
+               💡 Podobné: ${escHtml(similar.dish_name)}
+             </button>
+           </div>`
+        : '';
       return `<div class="meal-label">${escHtml(m.label)}</div>
         <div class="meal">
           <span class="meal-dish">${escHtml(m.dish)}</span>
           <button class="meal-recipe-btn" title="${title}" data-action="open-recipe-for-dish" data-dish="${escHtml(m.dish)}">${icon}</button>
-        </div>`;
+        </div>
+        ${suggestion}`;
     }).join('');
     card.innerHTML = `<div class="day-name">${escHtml(day.name)} ${escHtml(day.date || '')}</div>${meals}`;
     grid.appendChild(card);
@@ -777,7 +787,56 @@ async function loadRecipes() {
 function findRecipeByDishName(dishName) {
   if (!dishName) return null;
   const norm = dishName.trim().toLowerCase();
-  return (STATE.recipes || []).find(r => r.dish_name.trim().toLowerCase() === norm) || null;
+  return (STATE.recipes || []).find(r => {
+    if (r.dish_name.trim().toLowerCase() === norm) return true;
+    return (r.aliases || []).some(a => a.trim().toLowerCase() === norm);
+  }) || null;
+}
+
+// ── Similarity suggestions ───────────────────────────────────
+// Deliberately NOT used for the actual shopping calculation — only ever
+// surfaces a suggestion for a human to glance at and accept or ignore.
+// Word-overlap on tokens longer than 2 chars (skips Czech prepositions
+// like 's', 'a', 'z', 've'), which is precise enough to flag "probably the
+// same dish, worded differently" while staying cheap and dependency-free.
+// A single word difference between two genuinely different dishes (e.g.
+// "Vepřové výpečky" vs "Hovězí výpečky") scores meaningfully lower than a
+// true near-duplicate, but not low enough to trust unattended — hence
+// suggest-only, never auto-apply.
+function dishNameSimilarity(a, b) {
+  const wordsA = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  if (!wordsA.size || !wordsB.size) return 0;
+  let shared = 0;
+  wordsA.forEach(w => { if (wordsB.has(w)) shared++; });
+  return shared / Math.max(wordsA.size, wordsB.size);
+}
+
+const SIMILAR_RECIPE_THRESHOLD = 0.4;
+
+function findSimilarRecipe(dishName) {
+  if (!dishName) return null;
+  let best = null, bestScore = 0;
+  (STATE.recipes || []).forEach(r => {
+    const score = dishNameSimilarity(dishName, r.dish_name);
+    if (score > bestScore) { bestScore = score; best = r; }
+    (r.aliases || []).forEach(a => {
+      const aScore = dishNameSimilarity(dishName, a);
+      if (aScore > bestScore) { bestScore = aScore; best = r; }
+    });
+  });
+  return bestScore >= SIMILAR_RECIPE_THRESHOLD ? best : null;
+}
+
+async function acceptSimilarRecipe(dish, recipeId) {
+  try {
+    const updated = await dbPatch(`/api/db/recipes/${recipeId}/add-alias`, { alias: dish });
+    STATE.recipes = STATE.recipes.map(r => r.id === recipeId ? updated : r);
+    renderMenu();
+    toast(`„${dish}" nyní počítá s receptem „${updated.dish_name}".`, 'success');
+  } catch (e) {
+    toast('Propojení se nezdařilo: ' + e.message, 'error');
+  }
 }
 
 // For the current week's menu, sum every recipe ingredient's contribution
@@ -1032,6 +1091,11 @@ document.addEventListener('click', (e) => {
     switchTab('recepty');
     const existing = findRecipeByDishName(dish);
     openRecipeEditor(existing || { dish_name: dish });
+    return;
+  }
+  const acceptSimilarBtn = e.target.closest('[data-action="accept-similar-recipe"]');
+  if (acceptSimilarBtn) {
+    acceptSimilarRecipe(acceptSimilarBtn.dataset.dish, acceptSimilarBtn.dataset.recipeId);
     return;
   }
   const editBtn = e.target.closest('[data-action="edit-recipe"]');
