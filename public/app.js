@@ -36,6 +36,8 @@ const STATE = {
   savedCustomProducts: [],   // persistent custom products from DB, shown as quick-add chips in Nákup
   hiddenSubcategories: [],   // [{food_group, category_l2}] — excluded from Nákup grid per org
   recipes: [],               // [{id, dish_name, notes, ingredients:[{name,food_group,category_l2,qty_per_portion,unit}]}]
+  bookmarkedRecipes: [],      // [{id, title, url, folder_name, recipe_id}] — imported links, searchable before extraction
+  selectedBookmarkIds: new Set(), // checkbox selection, persists across re-renders (search/filter don't clear it)
 };
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -335,11 +337,21 @@ function renderMenu() {
       const hasRecipe = findRecipeByDishName(m.dish);
       const icon = hasRecipe ? '📖' : '➕';
       const title = hasRecipe ? 'Zobrazit/upravit recept' : 'Vytvořit recept pro toto jídlo';
+      const similar = !hasRecipe ? findSimilarRecipe(m.dish) : null;
+      const suggestion = similar
+        ? `<div class="meal-suggestion-row">
+             <button class="meal-suggest-btn" title="Použít tento recept i pro toto jídlo"
+                     data-action="accept-similar-recipe" data-dish="${escHtml(m.dish)}" data-recipe-id="${escHtml(similar.id)}">
+               💡 Podobné: ${escHtml(similar.dish_name)}
+             </button>
+           </div>`
+        : '';
       return `<div class="meal-label">${escHtml(m.label)}</div>
         <div class="meal">
           <span class="meal-dish">${escHtml(m.dish)}</span>
           <button class="meal-recipe-btn" title="${title}" data-action="open-recipe-for-dish" data-dish="${escHtml(m.dish)}">${icon}</button>
-        </div>`;
+        </div>
+        ${suggestion}`;
     }).join('');
     card.innerHTML = `<div class="day-name">${escHtml(day.name)} ${escHtml(day.date || '')}</div>${meals}`;
     grid.appendChild(card);
@@ -775,7 +787,56 @@ async function loadRecipes() {
 function findRecipeByDishName(dishName) {
   if (!dishName) return null;
   const norm = dishName.trim().toLowerCase();
-  return (STATE.recipes || []).find(r => r.dish_name.trim().toLowerCase() === norm) || null;
+  return (STATE.recipes || []).find(r => {
+    if (r.dish_name.trim().toLowerCase() === norm) return true;
+    return (r.aliases || []).some(a => a.trim().toLowerCase() === norm);
+  }) || null;
+}
+
+// ── Similarity suggestions ───────────────────────────────────
+// Deliberately NOT used for the actual shopping calculation — only ever
+// surfaces a suggestion for a human to glance at and accept or ignore.
+// Word-overlap on tokens longer than 2 chars (skips Czech prepositions
+// like 's', 'a', 'z', 've'), which is precise enough to flag "probably the
+// same dish, worded differently" while staying cheap and dependency-free.
+// A single word difference between two genuinely different dishes (e.g.
+// "Vepřové výpečky" vs "Hovězí výpečky") scores meaningfully lower than a
+// true near-duplicate, but not low enough to trust unattended — hence
+// suggest-only, never auto-apply.
+function dishNameSimilarity(a, b) {
+  const wordsA = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  if (!wordsA.size || !wordsB.size) return 0;
+  let shared = 0;
+  wordsA.forEach(w => { if (wordsB.has(w)) shared++; });
+  return shared / Math.max(wordsA.size, wordsB.size);
+}
+
+const SIMILAR_RECIPE_THRESHOLD = 0.4;
+
+function findSimilarRecipe(dishName) {
+  if (!dishName) return null;
+  let best = null, bestScore = 0;
+  (STATE.recipes || []).forEach(r => {
+    const score = dishNameSimilarity(dishName, r.dish_name);
+    if (score > bestScore) { bestScore = score; best = r; }
+    (r.aliases || []).forEach(a => {
+      const aScore = dishNameSimilarity(dishName, a);
+      if (aScore > bestScore) { bestScore = aScore; best = r; }
+    });
+  });
+  return bestScore >= SIMILAR_RECIPE_THRESHOLD ? best : null;
+}
+
+async function acceptSimilarRecipe(dish, recipeId) {
+  try {
+    const updated = await dbPatch(`/api/db/recipes/${recipeId}/add-alias`, { alias: dish });
+    STATE.recipes = STATE.recipes.map(r => r.id === recipeId ? updated : r);
+    renderMenu();
+    toast(`„${dish}" nyní počítá s receptem „${updated.dish_name}".`, 'success');
+  } catch (e) {
+    toast('Propojení se nezdařilo: ' + e.message, 'error');
+  }
 }
 
 // For the current week's menu, sum every recipe ingredient's contribution
@@ -832,13 +893,14 @@ let _recipeEditorIngredients = []; // working copy while the form is open
 let _recipeEditorId = null;        // null = creating new, else editing existing
 
 function openRecipeEditor(recipe) {
+  _currentEditorBookmarkId = null; // reset unless the caller sets it right after this call
   _recipeEditorId = recipe?.id || null;
   _recipeEditorIngredients = recipe?.ingredients?.length
     ? recipe.ingredients.map(i => ({ ...i }))
     : [];
   document.getElementById('recipeEditorDishName').value = recipe?.dish_name || '';
   document.getElementById('recipeEditorNotes').value = recipe?.notes || '';
-  document.getElementById('recipeEditorTitle').textContent = recipe ? 'Upravit recept' : 'Nový recept';
+  document.getElementById('recipeEditorTitle').textContent = recipe?.id ? 'Upravit recept' : 'Nový recept';
   document.getElementById('recipeEditor').classList.remove('hidden');
   renderRecipeEditorIngredients();
   document.getElementById('recipeEditorDishName').focus();
@@ -848,6 +910,7 @@ function closeRecipeEditor() {
   document.getElementById('recipeEditor').classList.add('hidden');
   _recipeEditorId = null;
   _recipeEditorIngredients = [];
+  _currentEditorBookmarkId = null;
 }
 
 function renderRecipeEditorIngredients() {
@@ -970,15 +1033,35 @@ async function saveRecipeEditor() {
 
   const ingredients = _recipeEditorIngredients.filter(i => i.name && i.name.trim());
   const payload = { dish_name, notes, ingredients };
+  const linkingBookmarkId = _currentEditorBookmarkId; // capture — closeRecipeEditor() resets the module-level one
+  const isNewRecipe = !_recipeEditorId;
 
   try {
+    let savedRecipe;
     if (_recipeEditorId) {
       const updated = await dbPut(`/api/db/recipes/${_recipeEditorId}`, payload);
       STATE.recipes = STATE.recipes.map(r => r.id === _recipeEditorId ? { ...r, ...updated } : r);
+      savedRecipe = updated;
     } else {
       const created = await dbPost('/api/db/recipes', payload);
       STATE.recipes = [...(STATE.recipes || []), created];
+      savedRecipe = created;
     }
+
+    // If this recipe came from a bookmark's "🔍 Extrahovat ingredience" flow,
+    // link the two so the bookmark shows as upgraded from now on.
+    if (isNewRecipe && linkingBookmarkId && savedRecipe?.id) {
+      try {
+        await dbPatch(`/api/db/bookmarked-recipes/${linkingBookmarkId}`, { recipe_id: savedRecipe.id });
+        STATE.bookmarkedRecipes = (STATE.bookmarkedRecipes || []).map(b =>
+          b.id === linkingBookmarkId ? { ...b, recipe_id: savedRecipe.id } : b
+        );
+        renderBookmarkedRecipes();
+      } catch (e) {
+        console.warn('Nepodařilo se propojit záložku s receptem:', e.message);
+      }
+    }
+
     renderRecipeList();
     renderMenu(); // dish icons (📖 vs ➕) may have changed
     closeRecipeEditor();
@@ -1010,6 +1093,11 @@ document.addEventListener('click', (e) => {
     openRecipeEditor(existing || { dish_name: dish });
     return;
   }
+  const acceptSimilarBtn = e.target.closest('[data-action="accept-similar-recipe"]');
+  if (acceptSimilarBtn) {
+    acceptSimilarRecipe(acceptSimilarBtn.dataset.dish, acceptSimilarBtn.dataset.recipeId);
+    return;
+  }
   const editBtn = e.target.closest('[data-action="edit-recipe"]');
   if (editBtn) {
     const recipe = (STATE.recipes || []).find(r => r.id === editBtn.dataset.id);
@@ -1022,8 +1110,281 @@ document.addEventListener('click', (e) => {
   if (removeIngBtn) {
     _recipeEditorIngredients.splice(parseInt(removeIngBtn.dataset.idx), 1);
     renderRecipeEditorIngredients();
+    return;
+  }
+  const extractBtn = e.target.closest('[data-action="extract-bookmark"]');
+  if (extractBtn) { extractIngredientsFromBookmark(extractBtn.dataset.id); return; }
+  const openBookmarkRecipeBtn = e.target.closest('[data-action="open-bookmark-recipe"]');
+  if (openBookmarkRecipeBtn) {
+    const recipe = (STATE.recipes || []).find(r => r.id === openBookmarkRecipeBtn.dataset.recipeId);
+    if (recipe) openRecipeEditor(recipe);
+    return;
+  }
+  const deleteBookmarkBtn = e.target.closest('[data-action="delete-bookmark"]');
+  if (deleteBookmarkBtn) { deleteBookmark(deleteBookmarkBtn.dataset.id); return; }
+});
+
+// ══════════════════════════════════════════════════════════
+// BOOKMARKED RECIPES — import a browser bookmarks export,
+// search/filter immediately, upgrade to full recipes on demand
+// ══════════════════════════════════════════════════════════
+
+async function loadBookmarkedRecipes() {
+  const orgId = window.SYNC?.ORG_ID;
+  if (!orgId) return;
+  try {
+    STATE.bookmarkedRecipes = await dbGet(`/api/db/bookmarked-recipes/${orgId}`);
+  } catch (e) {
+    console.warn('Nepodařilo se načíst záložky:', e);
+    STATE.bookmarkedRecipes = [];
+  }
+  renderBookmarkedRecipes();
+}
+
+// Browser bookmark exports (Netscape Bookmark File Format) are old,
+// slightly-invalid-by-strict-HTML-rules markup — <DT> never closes, <p> is
+// used as a bare separator, etc. Rather than regex-parse that fragile
+// structure by hand, hand it to the browser's own lenient HTML parser via
+// DOMParser and walk the resulting DOM in document order: every <h3> we
+// pass updates "current folder", every <a> we pass gets tagged with it.
+function parseBookmarksFile(fileText) {
+  const doc = new DOMParser().parseFromString(fileText, 'text/html');
+  const nodes = doc.querySelectorAll('h3, a');
+  const results = [];
+  let currentFolder = null;
+  nodes.forEach(node => {
+    if (node.tagName === 'H3') {
+      currentFolder = node.textContent.trim() || null;
+    } else if (node.tagName === 'A') {
+      const url = node.getAttribute('href');
+      const title = node.textContent.trim();
+      if (url && title) results.push({ title, url, folder_name: currentFolder });
+    }
+  });
+  return results;
+}
+
+async function handleBookmarksFileUpload(input) {
+  const file = input.files[0];
+  if (!file) return;
+  let text;
+  try {
+    text = await file.text();
+  } catch (e) {
+    toast('Soubor se nepodařilo přečíst.', 'error');
+    input.value = '';
+    return;
+  }
+  const parsed = parseBookmarksFile(text);
+  if (!parsed.length) {
+    toast('V souboru nebyly nalezeny žádné záložky (očekává se HTML export záložek z prohlížeče).', 'error');
+    input.value = '';
+    return;
+  }
+  try {
+    const created = await dbPost('/api/db/bookmarked-recipes/bulk', { bookmarks: parsed });
+    STATE.bookmarkedRecipes = [...(STATE.bookmarkedRecipes || []), ...created];
+    renderBookmarkedRecipes();
+    toast(`Naimportováno ${created.length} záložek.`, 'success');
+  } catch (e) {
+    toast('Import se nepodařilo uložit: ' + e.message, 'error');
+  }
+  input.value = ''; // allow re-selecting the same file later
+}
+
+function renderBookmarkFolderFilter() {
+  const sel = document.getElementById('bookmarkFolderFilter');
+  if (!sel) return;
+  const current = sel.value;
+  const folders = [...new Set((STATE.bookmarkedRecipes || []).map(b => b.folder_name).filter(Boolean))].sort();
+  sel.innerHTML = `<option value="">Všechny složky</option>` +
+    folders.map(f => `<option value="${escHtml(f)}">${escHtml(f)}</option>`).join('');
+  if (folders.includes(current)) sel.value = current;
+}
+
+function renderBookmarkedRecipes() {
+  const container = document.getElementById('bookmarkedRecipesList');
+  const toolbar = document.getElementById('bookmarkToolbar');
+  if (!container) return;
+  renderBookmarkFolderFilter();
+
+  const query = (document.getElementById('bookmarkSearchInput')?.value || '').trim().toLowerCase();
+  const folder = document.getElementById('bookmarkFolderFilter')?.value || '';
+
+  let list = STATE.bookmarkedRecipes || [];
+  if (query) list = list.filter(b => b.title.toLowerCase().includes(query));
+  if (folder) list = list.filter(b => b.folder_name === folder);
+
+  // Toolbar only makes sense once there's at least one bookmark to act on
+  const total = (STATE.bookmarkedRecipes || []).length;
+  if (toolbar) {
+    toolbar.classList.toggle('hidden', total === 0);
+    if (total > 0) {
+      const visibleIds = list.map(b => b.id);
+      const selectedVisible = visibleIds.filter(id => STATE.selectedBookmarkIds.has(id)).length;
+      const selectAllCb = document.getElementById('bookmarkSelectAllCheckbox');
+      if (selectAllCb) {
+        selectAllCb.checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+        selectAllCb.indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
+      }
+      const visCountEl = document.getElementById('bookmarkVisibleCount');
+      if (visCountEl) visCountEl.textContent = visibleIds.length;
+      const selCount = STATE.selectedBookmarkIds.size;
+      const delSelBtn = document.getElementById('btnDeleteSelectedBookmarks');
+      if (delSelBtn) {
+        delSelBtn.textContent = `🗑️ Smazat vybrané (${selCount})`;
+        delSelBtn.disabled = selCount === 0;
+      }
+      const delAllBtn = document.getElementById('btnDeleteAllBookmarks');
+      if (delAllBtn) delAllBtn.textContent = `🗑️ Smazat všechny záložky (${total})`;
+    }
+  }
+
+  if (!list.length) {
+    container.innerHTML = `<p class="muted" style="font-size:.85rem">${
+      total ? 'Žádné záložky neodpovídají hledání.' : 'Zatím žádné záložky — nahrajte export výše.'
+    }</p>`;
+    return;
+  }
+
+  container.innerHTML = list.map(b => `
+    <div class="bookmark-card">
+      <input type="checkbox" class="bookmark-checkbox" data-bookmark-id="${escHtml(b.id)}" ${STATE.selectedBookmarkIds.has(b.id) ? 'checked' : ''} />
+      <div class="bookmark-card-main">
+        <a href="${escHtml(b.url)}" target="_blank" rel="noopener noreferrer" class="bookmark-title" title="Otevřít originální stránku">${escHtml(b.title)}</a>
+        ${b.folder_name ? `<span class="bookmark-folder-tag">${escHtml(b.folder_name)}</span>` : ''}
+      </div>
+      <div class="bookmark-card-actions">
+        ${b.recipe_id
+          ? `<button class="btn btn-secondary btn-sm" data-action="open-bookmark-recipe" data-recipe-id="${escHtml(b.recipe_id)}">✅ Recept hotový</button>`
+          : `<button class="btn btn-secondary btn-sm" data-action="extract-bookmark" data-id="${escHtml(b.id)}">🔍 Extrahovat ingredience</button>`
+        }
+        <button class="rezerva-del-btn" title="Odstranit záložku" data-action="delete-bookmark" data-id="${escHtml(b.id)}">×</button>
+      </div>
+    </div>`).join('');
+}
+
+// Delegated checkbox handler — separate from the ingredient-row one above,
+// multiple independent listeners on 'change' is fine, they just both fire.
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('bookmark-checkbox')) {
+    toggleBookmarkSelection(e.target.dataset.bookmarkId, e.target.checked);
   }
 });
+
+function toggleBookmarkSelection(id, checked) {
+  if (checked) STATE.selectedBookmarkIds.add(id);
+  else STATE.selectedBookmarkIds.delete(id);
+  renderBookmarkedRecipes();
+}
+
+// Select-all applies only to whatever the current search/folder filter shows,
+// not the full unfiltered set — matches how filtered select-all normally works.
+function toggleSelectAllBookmarks(checked) {
+  const query = (document.getElementById('bookmarkSearchInput')?.value || '').trim().toLowerCase();
+  const folder = document.getElementById('bookmarkFolderFilter')?.value || '';
+  let list = STATE.bookmarkedRecipes || [];
+  if (query) list = list.filter(b => b.title.toLowerCase().includes(query));
+  if (folder) list = list.filter(b => b.folder_name === folder);
+
+  list.forEach(b => {
+    if (checked) STATE.selectedBookmarkIds.add(b.id);
+    else STATE.selectedBookmarkIds.delete(b.id);
+  });
+  renderBookmarkedRecipes();
+}
+
+async function deleteSelectedBookmarks() {
+  const ids = [...STATE.selectedBookmarkIds];
+  if (!ids.length) return;
+  if (!confirm(`Smazat ${ids.length} vybraných záložek? Tuto akci nelze vrátit zpět.`)) return;
+
+  STATE.bookmarkedRecipes = (STATE.bookmarkedRecipes || []).filter(b => !STATE.selectedBookmarkIds.has(b.id));
+  STATE.selectedBookmarkIds.clear();
+  renderBookmarkedRecipes();
+
+  try {
+    await dbDelete('/api/db/bookmarked-recipes/bulk', { ids });
+    toast(`Smazáno ${ids.length} záložek.`, 'success');
+  } catch (e) {
+    toast('Smazání se částečně nezdařilo: ' + e.message, 'error');
+    loadBookmarkedRecipes(); // resync with server truth — local state may now be wrong
+  }
+}
+
+async function deleteAllBookmarks() {
+  const all = STATE.bookmarkedRecipes || [];
+  if (!all.length) return;
+  if (!confirm(`POSLEDNÍ VAROVÁNÍ: Smazat opravdu VŠECH ${all.length} záložek?\nTato akce je nevratná.`)) return;
+
+  const ids = all.map(b => b.id);
+  STATE.bookmarkedRecipes = [];
+  STATE.selectedBookmarkIds.clear();
+  renderBookmarkedRecipes();
+
+  try {
+    await dbDelete('/api/db/bookmarked-recipes/bulk', { ids });
+    toast(`Smazáno všech ${ids.length} záložek.`, 'success');
+  } catch (e) {
+    toast('Smazání se částečně nezdařilo: ' + e.message, 'error');
+    loadBookmarkedRecipes();
+  }
+}
+
+// Tracks which bookmark (if any) the currently-open recipe editor originated
+// from, so saveRecipeEditor() can link the two together once the recipe is
+// actually persisted. Reset to null on every fresh openRecipeEditor() call;
+// the bookmark-extraction flow sets it again right after opening.
+let _currentEditorBookmarkId = null;
+
+async function extractIngredientsFromBookmark(bookmarkId) {
+  const bookmark = (STATE.bookmarkedRecipes || []).find(b => b.id === bookmarkId);
+  if (!bookmark) return;
+
+  openRecipeEditor({ dish_name: bookmark.title });
+  _currentEditorBookmarkId = bookmarkId; // set AFTER open — openRecipeEditor resets this to null
+  toast('🔍 Stahuji stránku a analyzuji ingredience…', 'info');
+
+  const groupList = Object.entries(window.NORMS.foodGroups).map(([k, g]) => `${k} (${g.label})`).join(', ');
+
+  try {
+    const res = await fetch('/api/extract-recipe-from-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: bookmark.url, foodGroupList: groupList }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    if (!data.ingredients?.length) throw new Error('Nenalezeny žádné ingredience.');
+
+    // The fetch can take a few seconds — only apply if this is still the
+    // editor session the user is looking at (they may have closed it or
+    // opened something else while this was in flight).
+    if (_currentEditorBookmarkId !== bookmarkId) return;
+
+    data.ingredients.forEach(s => {
+      _recipeEditorIngredients.push({
+        name: s.name || '', food_group: s.food_group || '', category_l2: '',
+        qty_per_portion: parseFloat(s.qty_per_portion) || 0, unit: s.unit || 'g',
+      });
+    });
+    renderRecipeEditorIngredients();
+    toast(`Nalezeno ${data.ingredients.length} ingrediencí ze stránky — zkontrolujte a doplňte podkategorie.`, 'success');
+  } catch (e) {
+    toast('Extrakce se nezdařila: ' + e.message, 'error');
+  }
+}
+
+async function deleteBookmark(id) {
+  STATE.bookmarkedRecipes = (STATE.bookmarkedRecipes || []).filter(b => b.id !== id);
+  renderBookmarkedRecipes();
+  try {
+    await dbDelete(`/api/db/bookmarked-recipes/${id}`);
+    toast('Záložka odstraněna.', 'success');
+  } catch (e) {
+    toast('Odstraněno z pohledu, ale smazání z DB selhalo: ' + e.message, 'warning');
+  }
+}
 
 /**
  * Nákup tab: read per-category/subcategory inputs, build cart, render shopping list.
@@ -2436,8 +2797,11 @@ async function dbPatch(path, body) {
   return await res.json();
 }
 
-async function dbDelete(path) {
-  const res = await authedFetch(path, { method: 'DELETE' });
+async function dbDelete(path, body) {
+  const res = await authedFetch(path, {
+    method: 'DELETE',
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `DELETE ${path}: HTTP ${res.status}`);
@@ -2593,6 +2957,7 @@ async function showApp() {
   loadSavedCustomProducts();
   loadHiddenSubcategories();
   loadRecipes();
+  loadBookmarkedRecipes();
   if (typeof renderAttendanceGrid === 'function') renderAttendanceGrid();
   if (STATE.currentMenu?.fetchedAt) {
     document.getElementById('lastCheck').textContent =

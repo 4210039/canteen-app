@@ -158,6 +158,17 @@ input, select { font: inherit; }
 }
 .meal-recipe-btn:hover { opacity: 1; transform: scale(1.15); }
 .day-card .meal-label { font-size: .72rem; color: var(--ink-light); }
+.meal-suggestion-row { margin: -.05rem 0 .35rem; }
+.meal-suggest-btn {
+  display: inline-block; max-width: 100%;
+  background: var(--bg-accent, #eef4ff); border: 1px dashed var(--border-accent, var(--primary));
+  border-radius: 6px; padding: .15rem .45rem;
+  font-size: .68rem; color: var(--text-accent, var(--primary));
+  cursor: pointer; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background .15s;
+}
+.meal-suggest-btn:hover { background: var(--bg-accent-hover, #dde9ff); }
 
 /* ── Recepty tab ──────────────────────────────────────────── */
 .recipe-list { display: flex; flex-direction: column; gap: .5rem; }
@@ -184,6 +195,44 @@ input, select { font: inherit; }
   width: 100%;
 }
 .rezerva-recipe-hint { font-size: .72rem; color: var(--primary, var(--green)); margin-left: .4rem; }
+
+.bookmark-list { display: flex; flex-direction: column; gap: .4rem; }
+.bookmark-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--white); border: 1px solid var(--border);
+  border-radius: 8px; padding: .5rem .6rem .5rem .85rem;
+  gap: .75rem; flex-wrap: wrap;
+}
+.bookmark-card-main {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+}
+.bookmark-title {
+  font-weight: 500; font-size: .87rem; color: var(--ink);
+  text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 100%;
+}
+.bookmark-title:hover { color: var(--primary, var(--green)); text-decoration: underline; }
+.bookmark-folder-tag {
+  font-size: .7rem; color: var(--ink-mid); background: var(--surface, #f3f3f3);
+  border-radius: 4px; padding: .1rem .45rem; flex-shrink: 0;
+}
+.bookmark-card-actions { display: flex; align-items: center; gap: .3rem; flex-shrink: 0; }
+.bookmark-checkbox { flex-shrink: 0; width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary, var(--green)); }
+
+.bookmark-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: .6rem;
+  padding: .5rem .1rem .75rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: .6rem;
+}
+.bookmark-select-all {
+  display: flex; align-items: center; gap: .45rem;
+  font-size: .85rem; color: var(--ink-mid); cursor: pointer; user-select: none;
+}
+.bookmark-select-all input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--primary, var(--green)); }
+.bookmark-toolbar-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.bookmark-toolbar-actions button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ── Ingredients ──────────────────────────────────────────── */
 .section-title {

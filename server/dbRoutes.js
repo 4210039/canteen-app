@@ -770,11 +770,111 @@ router.put('/recipes/:id', async (req, res) => {
   res.json({ id, dish_name, notes, ingredients: savedIngredients });
 });
 
+// PATCH add one alias to a recipe — deliberately separate from the wholesale
+// PUT above, which replaces ingredients unconditionally. This route only
+// ever appends a string to the aliases array; it can never touch
+// ingredients, so accepting a similarity suggestion in the UI is safe to
+// fire without the caller needing to also resend the full ingredient list.
+router.patch('/recipes/:id/add-alias', async (req, res) => {
+  const { id } = req.params;
+  const { alias } = req.body;
+  if (!alias || !alias.trim()) return res.status(400).json({ error: 'alias required' });
+  const supabase = getSupabase();
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from('recipes').select('aliases').eq('id', id).single();
+  if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+  const current = existing.aliases || [];
+  const trimmed = alias.trim();
+  if (current.some(a => a.toLowerCase() === trimmed.toLowerCase())) {
+    // Already there — no-op, just return current state so the client can proceed either way.
+    const { data: unchanged } = await supabase.from('recipes').select('*').eq('id', id).single();
+    return res.json(unchanged);
+  }
+
+  const { data, error } = await supabase
+    .from('recipes').update({ aliases: [...current, trimmed] }).eq('id', id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'recipe.add_alias', entity: 'recipes', description: `Alias přidán k receptu: "${trimmed}"` });
+  res.json(data);
+});
+
 // DELETE a recipe (ingredients cascade via FK)
 router.delete('/recipes/:id', async (req, res) => {
   const { id } = req.params;
   const supabase = getSupabase();
   const { error } = await supabase.from('recipes').delete().eq('id', id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ══════════════════════════════════════════════════════════
+// BOOKMARKED RECIPES — imported links, searchable before
+// any ingredient extraction happens; recipe_id set once upgraded
+// ══════════════════════════════════════════════════════════
+
+// GET all bookmarked links for org (full list — filtering happens client-side,
+// same pattern as products/recipes, since counts here are realistically
+// in the hundreds, not a scale that needs server-side search)
+router.get('/bookmarked-recipes/:orgId', async (req, res) => {
+  const { orgId } = req.params;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('bookmarked_recipes').select('*').eq('org_id', orgId).order('title');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST bulk-insert parsed bookmarks in one call
+router.post('/bookmarked-recipes/bulk', async (req, res) => {
+  const orgId = req.profile?.org_id;
+  const { bookmarks } = req.body;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on profile' });
+  if (!Array.isArray(bookmarks) || !bookmarks.length) return res.status(400).json({ error: 'bookmarks array required' });
+  const supabase = getSupabase();
+  const rows = bookmarks
+    .filter(b => b.title && b.url)
+    .map(b => ({ org_id: orgId, title: b.title.slice(0, 500), url: b.url.slice(0, 2000), folder_name: b.folder_name || null }));
+  const { data, error } = await supabase.from('bookmarked_recipes').insert(rows).select();
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'bookmarks.import', entity: 'bookmarked_recipes', description: `Naimportováno ${data.length} záložek` });
+  res.json(data);
+});
+
+// PATCH link a bookmark to the recipe created from it
+router.patch('/bookmarked-recipes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { recipe_id } = req.body;
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('bookmarked_recipes').update({ recipe_id }).eq('id', id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE multiple bookmarks by id in one call — used for both "delete
+// selected" (client sends the checked subset) and "delete all" (client
+// sends its full current list). Scoped to the caller's own org as a
+// safety net, since a bulk operation has a much bigger blast radius
+// than the single-row DELETE below if a client ever sent a bad id list.
+router.delete('/bookmarked-recipes/bulk', async (req, res) => {
+  const orgId = req.profile?.org_id;
+  const { ids } = req.body;
+  if (!orgId) return res.status(403).json({ error: 'org_id not found on profile' });
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids array required' });
+  const supabase = getSupabase();
+  const { error } = await supabase.from('bookmarked_recipes').delete().in('id', ids).eq('org_id', orgId);
+  if (error) return res.status(500).json({ error: error.message });
+  await audit(req, { action: 'bookmarks.bulk_delete', entity: 'bookmarked_recipes', description: `Smazáno ${ids.length} záložek` });
+  res.json({ ok: true, deleted: ids.length });
+});
+
+// DELETE a bookmark
+router.delete('/bookmarked-recipes/:id', async (req, res) => {
+  const { id } = req.params;
+  const supabase = getSupabase();
+  const { error } = await supabase.from('bookmarked_recipes').delete().eq('id', id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
 });

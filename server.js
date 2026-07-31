@@ -59,6 +59,80 @@ app.get('/api/fetch-menu', async (req, res) => {
   }
 });
 
+// ── Proxy: fetch a bookmarked recipe page + draft ingredients via AI ───────
+// Runs server-side because the target sites (recepty.cz, toprecepty.cz, etc.)
+// won't have CORS headers allowing a browser to fetch them directly.
+// Strips tags to plain text (no extra HTML-parsing dependency) and truncates
+// before handing to Groq, to keep token usage bounded regardless of page size.
+app.post('/api/extract-recipe-from-url', async (req, res) => {
+  const { url, foodGroupList } = req.body;
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    return res.status(500).json({ error: 'GROQ_API_KEY not set in .env' });
+  }
+  if (!url) return res.status(400).json({ error: 'url required' });
+
+  try {
+    const pageRes = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'cs-CZ,cs;q=0.9,en;q=0.8',
+      },
+      timeout: 15000,
+    });
+    if (!pageRes.ok) {
+      return res.status(502).json({ error: `Stránku se nepodařilo načíst (HTTP ${pageRes.status})` });
+    }
+    const rawHtml = await pageRes.text();
+
+    // Strip scripts/styles, then all remaining tags, collapse whitespace.
+    const text = rawHtml
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 12000); // keep prompt size bounded regardless of page length
+
+    if (!text || text.length < 50) {
+      return res.status(422).json({ error: 'Ze stránky se nepodařilo získat žádný čitelný text.' });
+    }
+
+    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 1200,
+        messages: [
+          { role: 'system', content: 'Jsi kuchař. Z textu webové stránky s receptem vytáhneš skutečný seznam ingrediencí. Vracíš POUZE čisté JSON pole, bez markdown, bez vysvětlení.' },
+          { role: 'user', content: `Text stránky s receptem:\n"""${text}"""\n\nVytáhni skutečné ingredience a jejich množství. Pokud recept udává počet porcí, přepočítej množství na JEDNU porci. Pokud počet porcí není uveden, odhadni pro 1 porci dítěte.\nPro každou ingredienci urči nejpravděpodobnější skupinu potravin z tohoto seznamu klíčů: ${foodGroupList || ''}\n\nVrať POUZE JSON pole (bez markdown):\n[{"name": "mrkev", "food_group": "zelenina", "qty_per_portion": 30, "unit": "g"}]` }
+        ]
+      }),
+      timeout: 30000,
+    });
+    const groqData = await groqRes.json();
+    if (groqData.error) return res.status(500).json({ error: groqData.error.message || 'Groq API chyba' });
+
+    const raw = groqData.choices?.[0]?.message?.content || '[]';
+    const clean = raw.replace(/```json|```/g, '').trim();
+    let ingredients;
+    try {
+      ingredients = JSON.parse(clean);
+    } catch {
+      return res.status(500).json({ error: 'AI vrátila neplatný formát.' });
+    }
+    if (!Array.isArray(ingredients)) ingredients = [];
+    res.json({ ingredients });
+  } catch (err) {
+    console.error('Recipe extraction error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Proxy: Groq API (keeps API key server-side) ────────────────────────────
 app.post('/api/groq', async (req, res) => {
   const apiKey = process.env.GROQ_API_KEY;
