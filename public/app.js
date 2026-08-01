@@ -1511,7 +1511,12 @@ function renderOffers(calc) {
 function renderShoppingList() {
   const panel = document.getElementById('shoppingPanel');
   const list  = document.getElementById('shoppingList');
-  if (!STATE.cart?.length) { panel.classList.add('hidden'); return; }
+  if (!STATE.cart?.length) {
+    panel.classList.add('hidden');
+    const projPanel = document.getElementById('cartComplianceProjection');
+    if (projPanel) { projPanel.classList.add('hidden'); projPanel.innerHTML = ''; }
+    return;
+  }
 
   panel.classList.remove('hidden');
   list.innerHTML = '<div class="shopping-list">' + STATE.cart.map((item, i) =>
@@ -1536,11 +1541,13 @@ function renderShoppingList() {
     </div>`
   ).join('') + '</div>';
   updateCartTotal();
+  renderCartComplianceProjection();
 }
 
 function toggleCartItem(i, checked) {
   STATE.cart[i]._skip = !checked;
   updateCartTotal();
+  renderCartComplianceProjection();
 }
 function updateCartPrice(i, val) {
   STATE.cart[i].price = parseFloat(val) || 0;
@@ -4322,6 +4329,40 @@ function renderComplianceViewToggle() {
   if (ratioInput && document.activeElement !== ratioInput) ratioInput.value = getZeleninaSplitRatio();
 }
 
+// Shared by the retrospective Normy compliance check and the forward-looking
+// Nákup purchase projection below — takes any array of ledger-shaped items
+// ({foodGroup?, name, grams?, qty, unit}) and returns grams/child/day per
+// food group, plus the zelenina/ovoce sub-split used only for display.
+// Extracted unchanged from checkCompliance()'s original inline loop so both
+// callers can never silently drift apart on how "actual" is computed.
+function computeActualGramsPerDay(items, workingDays, avgChildren) {
+  const actualGrams = {};
+  const subSplit = { zelenina: 0, ovoce: 0 };
+  let taggedCount = 0, guessedCount = 0;
+  for (const item of items) {
+    const c = classifyLedgerItem(item);
+    if (!c) continue;
+    if (c.wasTagged) taggedCount++; else guessedCount++;
+
+    const grams = item.grams || toGrams(item.qty, item.unit);
+    const gramsPerDay = grams / workingDays / avgChildren;
+    actualGrams[c.groupKey] = (actualGrams[c.groupKey] || 0) + gramsPerDay;
+
+    if (c.groupKey === 'zeleninaOvoce') {
+      if (c.rowKey === 'zeleninaOvoce_ovoce') {
+        subSplit.ovoce += gramsPerDay;
+      } else if (c.rowKey === 'zeleninaOvoce_zelenina') {
+        subSplit.zelenina += gramsPerDay;
+      } else {
+        const r = getZeleninaSplitRatio() / 100;
+        subSplit.zelenina += gramsPerDay * r;
+        subSplit.ovoce += gramsPerDay * (1 - r);
+      }
+    }
+  }
+  return { actualGrams, subSplit, taggedCount, guessedCount };
+}
+
 function checkCompliance() {
   const N = window.NORMS;
   const ageKey = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
@@ -4342,36 +4383,7 @@ function checkCompliance() {
 
   // Classification uses the shared classifyLedgerItem() helper (module scope)
   // so compliance, stock balance, and the smart-buying planner all agree.
-
-  let taggedCount = 0, guessedCount = 0;
-
-  // Sum actual grams per food group, plus a zelenina/ovoce sub-split
-  // (display-only — used only by the custom view, never affects the
-  // official compliance % which is always computed from the combined total).
-  const actualGrams = {};
-  const subSplit = { zelenina: 0, ovoce: 0 };
-  for (const item of recentItems) {
-    const c = classifyLedgerItem(item);
-    if (!c) continue;
-    if (c.wasTagged) taggedCount++; else guessedCount++;
-
-    const grams = item.grams || toGrams(item.qty, item.unit);
-    const gramsPerDay = grams / workingDays / avgChildren;
-    actualGrams[c.groupKey] = (actualGrams[c.groupKey] || 0) + gramsPerDay;
-
-    if (c.groupKey === 'zeleninaOvoce') {
-      if (c.rowKey === 'zeleninaOvoce_ovoce') {
-        subSplit.ovoce += gramsPerDay;
-      } else if (c.rowKey === 'zeleninaOvoce_zelenina') {
-        subSplit.zelenina += gramsPerDay;
-      } else {
-        // Still ambiguous — fall back to your configured ratio rather than an arbitrary 50/50.
-        const r = getZeleninaSplitRatio() / 100;
-        subSplit.zelenina += gramsPerDay * r;
-        subSplit.ovoce += gramsPerDay * (1 - r);
-      }
-    }
-  }
+  const { actualGrams, subSplit, taggedCount, guessedCount } = computeActualGramsPerDay(recentItems, workingDays, avgChildren);
 
   // Render compliance bars
   // Track represents 0–150 % of the norm target.
@@ -4447,6 +4459,79 @@ function checkCompliance() {
     <p class="muted" style="margin-top:.75rem">
       Výpočet z posledních 30 dní · ${recentItems.length} položek (${taggedCount} přesně přiřazeno, ${guessedCount} odhadnuto z názvu) ·
       ${workingDays} pracovních dní · Průměr ${avgChildren} dětí/den.
+    </p>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// FORWARD-LOOKING COMPLIANCE PROJECTION (Nákup)
+// "If I confirm what's currently in the cart, what happens to my rolling
+// 30-day compliance percentage?" — same methodology as checkCompliance()
+// above (same helper, same age group, same child count), just evaluated
+// twice: once on real ledger history alone, once with the pending cart
+// merged in. Never writes anything — purely a preview before confirming.
+// ══════════════════════════════════════════════════════════
+
+function computeCartComplianceProjection() {
+  const N = window.NORMS;
+  const ageKey = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const recentItems = STATE.ledger.filter(e => e.type === 'in' && new Date(e.date) >= thirtyDaysAgo);
+  const workingDays = 20;
+  const avgChildren = parseInt(document.getElementById('childCount')?.value) || 25;
+
+  // Unchecked ("skip") cart rows shouldn't count — they won't actually be
+  // confirmed into the ledger, so they shouldn't affect the projection either.
+  const cartItems = (STATE.cart || []).filter(i => !i._skip);
+  if (!recentItems.length && !cartItems.length) return null;
+
+  const before = computeActualGramsPerDay(recentItems, workingDays, avgChildren);
+  const after  = computeActualGramsPerDay([...recentItems, ...cartItems], workingDays, avgChildren);
+
+  const results = {};
+  Object.keys(N.foodGroups).forEach(key => {
+    results[key] = {
+      label: N.foodGroups[key].label,
+      before: N.checkCompliance(before.actualGrams[key] || 0, key, ageKey),
+      after:  N.checkCompliance(after.actualGrams[key] || 0, key, ageKey),
+    };
+  });
+  return results;
+}
+
+function renderCartComplianceProjection() {
+  const container = document.getElementById('cartComplianceProjection');
+  if (!container) return;
+
+  const proj = computeCartComplianceProjection();
+  if (!proj) { container.classList.add('hidden'); container.innerHTML = ''; return; }
+
+  // Only surface a food group if this cart actually moves its number, or if
+  // it's already outside the target range regardless — a persistent shortfall
+  // shouldn't disappear from view just because this particular cart doesn't
+  // happen to touch it. Everything else (on-target, unaffected) stays hidden
+  // so this doesn't turn into a wall of ten bars every single time.
+  const relevant = Object.entries(proj).filter(([, r]) =>
+    Math.round(r.before.pct) !== Math.round(r.after.pct) || r.before.status !== 'ok'
+  );
+
+  if (!relevant.length) { container.classList.add('hidden'); container.innerHTML = ''; return; }
+
+  container.classList.remove('hidden');
+  container.innerHTML = `
+    <div class="cart-compliance-title">📊 Dopad na měsíční shodu (posledních 30 dní + tento nákup)</div>
+    ${relevant.map(([, r]) => {
+      const arrow = r.after.pct > r.before.pct ? '↑' : r.after.pct < r.before.pct ? '↓' : '→';
+      return `
+        <div class="cart-compliance-row">
+          <span class="cart-compliance-label">${escHtml(r.label)}</span>
+          <span class="comp-pct ${r.before.status}">${r.before.pct.toFixed(0)}%</span>
+          <span class="cart-compliance-arrow">${arrow}</span>
+          <span class="comp-pct ${r.after.status}">${r.after.pct.toFixed(0)}%</span>
+        </div>`;
+    }).join('')}
+    <p class="muted" style="font-size:.72rem;margin-top:.4rem">
+      Stejná metodika jako v záložce Normy (rolující 30denní průměr). Odškrtnuté položky se do odhadu nepočítají.
     </p>`;
 }
 

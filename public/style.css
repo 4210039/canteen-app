@@ -325,6 +325,19 @@ input, select { font: inherit; }
   background: var(--green-pale); border-radius: 8px; font-size: .9rem;
 }
 
+.cart-compliance-panel {
+  margin-top: .6rem; padding: .7rem .85rem;
+  background: var(--surface, #f7f7f7); border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.cart-compliance-title { font-size: .8rem; font-weight: 600; color: var(--ink-mid); margin-bottom: .5rem; }
+.cart-compliance-row {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .85rem; padding: .2rem 0;
+}
+.cart-compliance-label { flex: 1; color: var(--ink); }
+.cart-compliance-arrow { color: var(--ink-light); font-size: .8rem; }
+
 .pcl-item--custom { background: var(--primary-pale, #e8f0fe); }
 .pcl-custom-badge {
   font-size: .7rem; font-style: normal; font-weight: 600;
