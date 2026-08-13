@@ -124,6 +124,7 @@ function openImport(section) {
   document.getElementById('importFileInfo').innerHTML = '';
   document.getElementById('importMappingPane').classList.add('hidden');
   document.getElementById('importPreviewPane').classList.add('hidden');
+  document.getElementById('importMenuWeekPane').classList.add('hidden');
   document.getElementById('importPasteArea').value = '';
   document.getElementById('importFileInput').value = '';
   document.getElementById('btnDoImport').disabled = true;
@@ -879,11 +880,14 @@ function importParsePaste() {
 function parseTextToRows(text) {
   const cfg = IMPORT_CONFIG[_importSection];
   if (cfg.mode === 'text') {
-    // Raw text import
     _importIsText = true;
     _importRawText = text;
-    showTextPreview(text);
-    document.getElementById('btnDoImport').disabled = false;
+    if (_importSection === 'menu') {
+      showMenuTextPreview(text);
+    } else {
+      showTextPreview(text);
+      document.getElementById('btnDoImport').disabled = false;
+    }
     return;
   }
 
@@ -967,6 +971,79 @@ function showTextPreview(text) {
   const table = document.getElementById('importPreviewTable');
   const preview = text.slice(0, 800) + (text.length > 800 ? '\n…' : '');
   table.innerHTML = `<tr><td style="white-space:pre-wrap;font-size:.85rem;padding:.5rem">${escHtml(preview)}</td></tr>`;
+}
+
+// Parsed once here, at "Analyzovat" time, and reused as-is when the user
+// finally confirms — so the AI is never called twice for the same paste,
+// and what's shown in the preview is exactly what gets saved.
+let _importParsedMenuDays = null;
+
+// A parsed day only ever carries "DD.MM." — no year — so the year has to be
+// guessed. Bias the guess toward the recent past rather than the far future:
+// this exists specifically to support importing OLD menus (the whole reason
+// this feature was built), and a school canteen essentially never preloads
+// more than a couple of weeks ahead, so "more than a month in the future"
+// is a stronger signal of "this must mean last year" than of "this is a
+// genuine long-range preload". Whatever it guesses is shown and editable
+// before saving, so a wrong guess here costs nothing.
+function inferWeekFromParsedDays(days) {
+  const today = new Date();
+  for (const day of (days || [])) {
+    const m = (day.date || '').match(/(\d{1,2})\.(\d{1,2})\.?/);
+    if (!m) continue;
+    const dd = parseInt(m[1], 10), mm = parseInt(m[2], 10);
+    if (!dd || !mm || mm > 12 || dd > 31) continue;
+
+    let year = today.getFullYear();
+    let guess = new Date(year, mm - 1, dd);
+    const daysAhead = (guess - today) / 86400000;
+    if (daysAhead > 30) { year -= 1; guess = new Date(year, mm - 1, dd); }
+
+    return getWeekKey(guess);
+  }
+  return null; // no usable date found anywhere in the parsed days
+}
+
+async function showMenuTextPreview(text) {
+  document.getElementById('importMappingPane').classList.add('hidden');
+  document.getElementById('importPreviewPane').classList.remove('hidden');
+  document.getElementById('importMenuWeekPane').classList.remove('hidden');
+  document.getElementById('importPreviewCount').textContent = '';
+  document.getElementById('importPreviewTable').innerHTML =
+    `<tr><td style="white-space:pre-wrap;font-size:.85rem;padding:.5rem">${escHtml(text.slice(0, 800))}${text.length > 800 ? '\n…' : ''}</td></tr>`;
+
+  const hint  = document.getElementById('importMenuWeekHint');
+  const daysPreview = document.getElementById('importMenuDaysPreview');
+  const picker = document.getElementById('importMenuWeekPicker');
+  const btn = document.getElementById('btnDoImport');
+
+  hint.textContent = 'Analyzuji text pomocí AI…';
+  daysPreview.innerHTML = '';
+  btn.disabled = true;
+  _importParsedMenuDays = null;
+
+  try {
+    const parsed = await groqParseMenu(text.slice(0, 6000));
+    _importParsedMenuDays = parsed;
+
+    const guessedWeek = inferWeekFromParsedDays(parsed);
+    picker.value = guessedWeek || getWeekKey(new Date());
+    hint.textContent = guessedWeek
+      ? `Podle dat v textu odhadnuto automaticky — zkontrolujte prosím, že je to správný týden.`
+      : `V textu se nepodařilo najít žádné datum — nastaven aktuální týden, upravte prosím ručně.`;
+
+    daysPreview.innerHTML = (parsed || []).map(d =>
+      `<div class="import-menu-day-chip"><strong>${escHtml(d.name || '')}</strong> ${escHtml(d.date || '')} — ${
+        (d.meals || []).map(m => escHtml(m.dish)).filter(Boolean).join(', ') || '–'
+      }</div>`
+    ).join('');
+
+    btn.disabled = false;
+  } catch (err) {
+    hint.textContent = '';
+    toast('Analýza jídelníčku selhala: ' + err.message, 'error');
+    picker.value = getWeekKey(new Date());
+  }
 }
 
 // ── Column mapping UI ─────────────────────────────────────
@@ -1218,40 +1295,52 @@ async function doBackupRestore() {
   }
 }
 
-function doTextImport() {
+async function doTextImport() {
   const text = _importRawText;
   if (!text) return;
 
   switch (_importSection) {
-    case 'menu':
-      // Re-use groq parse flow
-      if (typeof groqParseMenu === 'function') {
-        closeImport();
-        toast('Analyzuji jídelníček…', 'info');
-        groqParseMenu(text.slice(0, 6000)).then(async parsed => {
-          const fetchedAt = new Date().toISOString();
-          const ingredients = extractIngredients(parsed);
-          try {
-            await dbPost('/api/db/menus', {
-              org_id: window.SYNC.ORG_ID,
-              week_key: getWeekKey(new Date(fetchedAt)),
-              raw_text: text,
-              days_json: parsed,
-              ingredients,
-            });
-            STATE.currentMenu = { fetchedAt, raw: text, days: parsed };
-            STATE.ingredients = ingredients;
-            renderMenu();
-            renderIngredients();
-            toast('Jídelníček importován!', 'success');
-          } catch (err) {
-            toast('Jídelníček se nepodařilo uložit do databáze: ' + err.message, 'error');
-          }
-        }).catch(err => toast('Chyba analýzy: ' + err.message, 'error'));
-      } else {
-        toast('Funkce analýzy jídelníčku není dostupná.', 'error');
+    case 'menu': {
+      if (!_importParsedMenuDays) {
+        toast('Nejprve klikněte na „Analyzovat".', 'error');
+        return;
+      }
+      const weekKey = document.getElementById('importMenuWeekPicker')?.value;
+      if (!weekKey) {
+        toast('Vyberte prosím týden, pro který se má jídelníček uložit.', 'error');
+        return;
+      }
+
+      closeImport();
+      toast('Ukládám jídelníček…', 'info');
+
+      const parsed = _importParsedMenuDays;
+      const ingredients = extractIngredients(parsed);
+      try {
+        await dbPost('/api/db/menus', {
+          org_id: window.SYNC.ORG_ID,
+          week_key: weekKey,
+          raw_text: text,
+          days_json: parsed,
+          ingredients,
+        });
+
+        // Only replace what's currently on screen if the imported week IS the
+        // week currently being viewed — otherwise this would silently swap
+        // the visible Jídelníček to a different week than the one open,
+        // even though the import itself (correctly) targeted the right week.
+        if (!STATE.currentMenu || weekKey === STATE.currentMenu.weekKey) {
+          STATE.currentMenu = { fetchedAt: new Date().toISOString(), weekKey, raw: text, days: parsed };
+          STATE.ingredients = ingredients;
+          renderMenu();
+          renderIngredients();
+        }
+        toast(`Jídelníček importován pro týden ${weekKeyLabel(weekKey)}.`, 'success');
+      } catch (err) {
+        toast('Jídelníček se nepodařilo uložit do databáze: ' + err.message, 'error');
       }
       break;
+    }
 
     case 'norms':
       closeImport();

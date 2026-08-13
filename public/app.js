@@ -82,7 +82,7 @@ async function loadCurrentMenuFromCloud() {
   const rows = await res.json();
   if (rows.length) {
     const newest = rows[0]; // already ordered newest-first by the server
-    STATE.currentMenu = { fetchedAt: newest.fetched_at, raw: newest.raw_text || '', days: newest.days_json || [] };
+    STATE.currentMenu = { fetchedAt: newest.fetched_at, weekKey: newest.week_key, raw: newest.raw_text || '', days: newest.days_json || [] };
     STATE.ingredients = Array.isArray(newest.ingredients) && newest.ingredients.length
       ? newest.ingredients
       : extractIngredients(newest.days_json || []);
@@ -236,7 +236,7 @@ async function fetchMenu() {
       ingredients,
     });
 
-    STATE.currentMenu = { fetchedAt, raw: trimmed, days: parsed };
+    STATE.currentMenu = { fetchedAt, weekKey, raw: trimmed, days: parsed };
     STATE.ingredients = ingredients;
 
     renderMenu();

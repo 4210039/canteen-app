@@ -987,6 +987,17 @@
         </div>
       </div>
 
+      <!-- Menu-only: confirm which week this text actually belongs to. Shown
+           after AI parsing succeeds; pre-filled with a best-guess week from
+           dates found in the pasted text, but always editable — imports of
+           past menus need to land in their real week, not always "today". -->
+      <div id="importMenuWeekPane" class="import-pane hidden">
+        <h3 style="margin-bottom:.4rem">Pro který týden je tento jídelníček?</h3>
+        <p class="muted" id="importMenuWeekHint" style="font-size:.82rem;margin-bottom:.5rem"></p>
+        <input type="week" id="importMenuWeekPicker" style="padding:.5rem .7rem;border:1.5px solid var(--border);border-radius:8px;font-size:.9rem" />
+        <div id="importMenuDaysPreview" class="import-menu-days-preview"></div>
+      </div>
+
       <!-- Per-row error report (filled by renderImportErrors in import.js) -->
       <div id="importErrorPane" class="import-pane import-error-pane hidden"></div>
 

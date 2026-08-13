@@ -979,6 +979,17 @@ input, select { font: inherit; }
 }
 .import-preview-table tr:hover td { background: var(--green-pale); }
 
+.import-menu-days-preview {
+  margin-top: .6rem; max-height: 160px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .3rem;
+}
+.import-menu-day-chip {
+  font-size: .78rem; color: var(--ink); padding: .35rem .55rem;
+  background: var(--surface, #f5f5f5); border-radius: 6px;
+  white-space: normal; line-height: 1.4;
+}
+.import-menu-day-chip strong { color: var(--green); margin-right: .3rem; }
+
 .import-actions {
   display: flex; justify-content: flex-end; gap: .6rem;
   padding: .85rem 1.25rem; border-top: 1px solid var(--border);
