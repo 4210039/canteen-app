@@ -1336,6 +1336,22 @@ async function doTextImport() {
           renderIngredients();
         }
         toast(`Jídelníček importován pro týden ${weekKeyLabel(weekKey)}.`, 'success');
+
+        // The saved-menus archive browser (📚 Uložené jídelníčky) keeps its
+        // own separate copy of the list (_savedMenus), only ever populated
+        // by a manual "Načíst z databáze" click. Without this, a successful
+        // import would be invisible there until that button gets pressed
+        // again — which reads exactly like "did this even save?" even
+        // though it did. Refresh it, then explicitly jump the year/month
+        // filter to the week just imported rather than trusting whatever
+        // loadSavedMenus() auto-selects (it picks the newest week_key
+        // overall, which isn't necessarily the one just backfilled).
+        await loadSavedMenus();
+        const importedDate = weekKeyToDate(weekKey);
+        document.getElementById('menuFilterYear').value = importedDate.getFullYear();
+        document.getElementById('menuFilterMonth').value = importedDate.getMonth() + 1;
+        document.getElementById('savedMenusSearchInput').value = '';
+        renderSavedMenusWeekList();
       } catch (err) {
         toast('Jídelníček se nepodařilo uložit do databáze: ' + err.message, 'error');
       }

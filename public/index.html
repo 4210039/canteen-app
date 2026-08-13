@@ -157,6 +157,11 @@
       <button class="btn btn-secondary btn-sm" id="btnLoadSavedMenus">🔄 Načíst z databáze</button>
     </div>
     <div class="card saved-menus-filter" id="savedMenusFilter" style="display:none">
+      <div class="form-group" style="margin-bottom:.6rem">
+        <label>🔍 Hledat podle jídla (prohledá všechny uložené jídelníčky)</label>
+        <input type="text" id="savedMenusSearchInput" placeholder="např. Kulajda" oninput="renderSavedMenusWeekList()"
+               style="width:100%;padding:.5rem .7rem;border:1.5px solid var(--border);border-radius:8px;font-size:.88rem" />
+      </div>
       <div class="filter-row">
         <div class="form-group">
           <label>Rok</label>

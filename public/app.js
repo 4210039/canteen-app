@@ -3187,33 +3187,48 @@ function populateSavedMenusYearFilter() {
   yearSelect.onchange = () => {
     _selectedWeekKey = null;
     document.getElementById('savedMenuDetail').innerHTML = '';
+    document.getElementById('savedMenusSearchInput').value = '';
     renderSavedMenusWeekList();
   };
   monthSelect.onchange = () => {
     _selectedWeekKey = null;
     document.getElementById('savedMenuDetail').innerHTML = '';
+    document.getElementById('savedMenusSearchInput').value = '';
     renderSavedMenusWeekList();
   };
 }
 
-/** Show the week buttons for the currently selected year+month. */
+/** Show the week buttons for the currently selected year+month, or —
+ * when the search box has text — every week containing a matching dish,
+ * regardless of year/month. Search deliberately overrides the date filter
+ * rather than combining with it: "find this dish" is a different question
+ * than "what's the shape of a specific month", and forcing them to also
+ * pick the right month first to search would defeat the point of search. */
 function renderSavedMenusWeekList() {
   const year = parseInt(document.getElementById('menuFilterYear').value, 10);
   const month = parseInt(document.getElementById('menuFilterMonth').value, 10); // 1-based
   const listEl = document.getElementById('savedMenuWeekList');
+  const query = (document.getElementById('savedMenusSearchInput')?.value || '').trim().toLowerCase();
 
-  // Filter menus whose week starts in the selected year+month
-  const filtered = _savedMenus.filter(m => {
-    const d = weekKeyToDate(m.week_key);
-    return d.getFullYear() === year && (d.getMonth() + 1) === month;
-  });
+  let filtered;
+  if (query) {
+    filtered = _savedMenus.filter(m =>
+      (m.days_json || []).some(d => (d.meals || []).some(meal => (meal.dish || '').toLowerCase().includes(query)))
+    );
+  } else {
+    filtered = _savedMenus.filter(m => {
+      const d = weekKeyToDate(m.week_key);
+      return d.getFullYear() === year && (d.getMonth() + 1) === month;
+    });
+  }
 
   if (!filtered.length) {
-    listEl.innerHTML = `<p class="muted" style="padding:.5rem 0">Žádné jídelníčky pro vybraný měsíc.</p>`;
+    listEl.innerHTML = `<p class="muted" style="padding:.5rem 0">${
+      query ? 'Žádný uložený jídelníček neobsahuje toto jídlo.' : 'Žádné jídelníčky pro vybraný měsíc.'
+    }</p>`;
     return;
   }
 
-  // Sort chronologically (oldest first within the month)
   const sorted = [...filtered].sort((a, b) => a.week_key.localeCompare(b.week_key));
 
   listEl.innerHTML = sorted.map(m => {
