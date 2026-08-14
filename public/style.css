@@ -859,6 +859,21 @@ input, select { font: inherit; }
 }
 .import-overlay.hidden { display: none; }
 
+.confirm-modal-overlay {
+  position: fixed; inset: 0; z-index: 2100;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.confirm-modal-overlay.hidden { display: none; }
+.confirm-modal {
+  background: var(--white); border-radius: 12px;
+  width: 100%; max-width: 420px;
+  padding: 1.25rem; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+.confirm-modal p { font-size: .92rem; color: var(--ink); line-height: 1.5; margin-bottom: 1.1rem; }
+.confirm-modal-actions { display: flex; justify-content: flex-end; gap: .6rem; }
+
 .import-modal {
   background: var(--white); border-radius: 14px;
   width: 100%; max-width: 680px; max-height: 90vh;

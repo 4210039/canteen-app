@@ -937,6 +937,26 @@
   <div id="toast" class="toast hidden"></div>
 
   <!-- ══════════════════════════════════════════════════════════
+       CONFIRM MODAL — replaces window.confirm() everywhere.
+       Native confirm() is synchronous and blocks the main thread for
+       however long the person takes to read and decide, which Chrome's
+       performance/INP tooling reports as the triggering click handler
+       "blocking" — even though nothing was actually computing. Awaiting
+       a Promise, unlike a synchronous confirm() call, yields control
+       back to the browser between the click and the person's response,
+       so nothing gets flagged as blocked.
+  ═══════════════════════════════════════════════════════════ -->
+  <div id="confirmModalOverlay" class="confirm-modal-overlay hidden">
+    <div class="confirm-modal">
+      <p id="confirmModalMessage"></p>
+      <div class="confirm-modal-actions">
+        <button class="btn btn-ghost" id="confirmModalCancelBtn">Zrušit</button>
+        <button class="btn btn-primary" id="confirmModalOkBtn">Potvrdit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
        IMPORT MODAL
   ═══════════════════════════════════════════════════════════ -->
   <div id="importOverlay" class="import-overlay hidden" onclick="closeImportOnBackdrop(event)">

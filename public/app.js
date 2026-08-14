@@ -153,6 +153,43 @@ function weekKeyLabel(wk) {
   return `Týden ${w} / ${year}`;
 }
 
+// ── Non-blocking confirm modal (replaces window.confirm()) ─────────────
+// Same call shape as a boolean confirm, but await-based: `if (!(await
+// showConfirmModal('...'))) return;`. Unlike native confirm(), the wait
+// for the person's answer never blocks the main thread — only one
+// instance is ever open at a time, which matches how this app uses it.
+function showConfirmModal(message) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('confirmModalOverlay');
+    const okBtn = document.getElementById('confirmModalOkBtn');
+    const cancelBtn = document.getElementById('confirmModalCancelBtn');
+    document.getElementById('confirmModalMessage').textContent = message;
+    overlay.classList.remove('hidden');
+
+    function cleanup(result) {
+      overlay.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onOk() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onBackdrop(e) { if (e.target === overlay) cleanup(false); }
+    function onKey(e) {
+      if (e.key === 'Escape') cleanup(false);
+      if (e.key === 'Enter') cleanup(true);
+    }
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+    okBtn.focus();
+  });
+}
+
 // ── Status indicator ───────────────────────────────────────
 function setStatus(state, label) {
   const dot = document.getElementById('statusDot');
@@ -3304,7 +3341,7 @@ async function useSavedMenuAsCurrent(weekKey) {
   }
 
   if (STATE.currentMenu?.days?.length &&
-      !confirm(`Nahradit aktuálně zobrazený jídelníček týdnem ${weekKeyRangeLabel(weekKey)}? Stávající zobrazený jídelníček bude přepsán (uložené záznamy v databázi zůstanou zachovány).`)) {
+      !(await showConfirmModal(`Nahradit aktuálně zobrazený jídelníček týdnem ${weekKeyRangeLabel(weekKey)}? Stávající zobrazený jídelníček bude přepsán (uložené záznamy v databázi zůstanou zachovány).`))) {
     return;
   }
 
