@@ -3560,6 +3560,16 @@ async function setAttWeek(weekStr) {
     toast('Nepodařilo se načíst docházku: ' + err.message, 'error');
   }
   renderAttendanceGrid();
+
+  // Keep the ingredient-calculation panel in sync with whichever week is
+  // now selected, rather than silently leaving it showing the PREVIOUS
+  // week's numbers next to a picker that now says something else. Only
+  // once someone has actually pressed "Přepočítat" at least once this
+  // session (window.LAST_CALC exists) — before that, the panel is still
+  // showing its original "zadejte docházku" prompt, which switching weeks
+  // shouldn't disturb. calcIngredients() is pure, synchronous math over
+  // data that's already loaded by this point, so this costs nothing.
+  if (window.LAST_CALC) calcIngredients();
 }
 
 async function focusAttendanceWeekFromImport(weekStr) {
@@ -4528,7 +4538,13 @@ function initAttendance() {
   renderAttendanceGrid();
 
   const ageSelect = document.getElementById('attAgeGroup');
-  if (ageSelect) ageSelect.addEventListener('change', renderAttendanceGrid);
+  if (ageSelect) ageSelect.addEventListener('change', () => {
+    renderAttendanceGrid();
+    // Same reasoning as setAttWeek(): calcIngredients() depends on age
+    // group too, so a stale calculation would otherwise sit there
+    // unchanged next to a selector that now says something else.
+    if (window.LAST_CALC) calcIngredients();
+  });
 
   document.getElementById('btnSaveAttendance')?.addEventListener('click', async () => {
     // Read all inputs and build rows to write to Supabase
