@@ -597,6 +597,46 @@ input, select { font: inherit; }
 }
 .att-day-total strong { color: var(--green); }
 
+/* Auto-save indicator */
+.att-autosave-indicator {
+  font-size: .78rem;
+  padding: .25rem .6rem;
+  border-radius: 20px;
+  transition: all .3s ease;
+  white-space: nowrap;
+  align-self: center;
+}
+.att-autosave-indicator.saving {
+  background: var(--surface);
+  color: var(--ink-mid);
+  border: 1px solid var(--border);
+}
+.att-autosave-indicator.saved {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #c8e6c9;
+}
+.att-autosave-indicator.error {
+  background: #fdecea;
+  color: #c62828;
+  border: 1px solid #ffcdd2;
+}
+
+/* Stale calc banner */
+.stale-calc-banner {
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  color: #5d4037;
+  font-size: .85rem;
+  padding: .6rem 1rem;
+  margin-bottom: .75rem;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.stale-calc-banner.hidden { display: none; }
+
 /* Ingredient calc result */
 .ingr-calc-grid {
   display: grid; gap: .5rem;
@@ -859,6 +899,21 @@ input, select { font: inherit; }
 }
 .import-overlay.hidden { display: none; }
 
+.confirm-modal-overlay {
+  position: fixed; inset: 0; z-index: 2100;
+  background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1rem;
+}
+.confirm-modal-overlay.hidden { display: none; }
+.confirm-modal {
+  background: var(--white); border-radius: 12px;
+  width: 100%; max-width: 420px;
+  padding: 1.25rem; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+.confirm-modal p { font-size: .92rem; color: var(--ink); line-height: 1.5; margin-bottom: 1.1rem; }
+.confirm-modal-actions { display: flex; justify-content: flex-end; gap: .6rem; }
+
 .import-modal {
   background: var(--white); border-radius: 14px;
   width: 100%; max-width: 680px; max-height: 90vh;
@@ -978,6 +1033,17 @@ input, select { font: inherit; }
   position: sticky; top: 0;
 }
 .import-preview-table tr:hover td { background: var(--green-pale); }
+
+.import-menu-days-preview {
+  margin-top: .6rem; max-height: 160px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: .3rem;
+}
+.import-menu-day-chip {
+  font-size: .78rem; color: var(--ink); padding: .35rem .55rem;
+  background: var(--surface, #f5f5f5); border-radius: 6px;
+  white-space: normal; line-height: 1.4;
+}
+.import-menu-day-chip strong { color: var(--green); margin-right: .3rem; }
 
 .import-actions {
   display: flex; justify-content: flex-end; gap: .6rem;

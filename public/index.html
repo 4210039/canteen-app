@@ -157,6 +157,11 @@
       <button class="btn btn-secondary btn-sm" id="btnLoadSavedMenus">🔄 Načíst z databáze</button>
     </div>
     <div class="card saved-menus-filter" id="savedMenusFilter" style="display:none">
+      <div class="form-group" style="margin-bottom:.6rem">
+        <label>🔍 Hledat podle jídla (prohledá všechny uložené jídelníčky)</label>
+        <input type="text" id="savedMenusSearchInput" placeholder="např. Kulajda" oninput="renderSavedMenusWeekList()"
+               style="width:100%;padding:.5rem .7rem;border:1.5px solid var(--border);border-radius:8px;font-size:.88rem" />
+      </div>
       <div class="filter-row">
         <div class="form-group">
           <label>Rok</label>
@@ -832,7 +837,7 @@
         <button class="btn btn-secondary" onclick="openImport('attendanceRoster')">📥 Import měsíčního přehledu (.xlsx)</button>
         <button class="btn btn-secondary" onclick="openExport('attendance')">📤 Export</button>
         <button class="btn btn-secondary btn-sm" id="btnCopyPrevWeek">📋 Kopírovat minulý týden</button>
-        <button class="btn btn-primary" id="btnSaveAttendance">💾 Uložit docházku</button>
+        <span id="attAutoSaveIndicator" class="att-autosave-indicator" title="Docházka se ukládá automaticky"></span>
       </div>
     </div>
 
@@ -870,12 +875,13 @@
     <!-- Ingredient calculator -->
     <div class="section-title mt-2">
       <h3>🧮 Výpočet surovin dle docházky a norem</h3>
-      <button class="btn btn-secondary btn-sm" id="btnCalcIngredients">Přepočítat</button>
+      <button class="btn btn-secondary btn-sm" id="btnCalcIngredients">🔄 Přepočítat</button>
     </div>
+    <div id="staleCalcBanner" class="stale-calc-banner hidden"></div>
     <div id="ingredientCalcResult">
       <div class="empty-state">
         <span class="empty-icon">🧮</span>
-        <p>Zadejte docházku a klikněte „Přepočítat" pro výpočet potřebných surovin dle státních norem.</p>
+        <p>Zadejte docházku — výpočet proběhne automaticky. Tlačítko „Přepočítat" je k dispozici pro ruční přepočet.</p>
       </div>
     </div>
   </section>
@@ -932,6 +938,26 @@
   <div id="toast" class="toast hidden"></div>
 
   <!-- ══════════════════════════════════════════════════════════
+       CONFIRM MODAL — replaces window.confirm() everywhere.
+       Native confirm() is synchronous and blocks the main thread for
+       however long the person takes to read and decide, which Chrome's
+       performance/INP tooling reports as the triggering click handler
+       "blocking" — even though nothing was actually computing. Awaiting
+       a Promise, unlike a synchronous confirm() call, yields control
+       back to the browser between the click and the person's response,
+       so nothing gets flagged as blocked.
+  ═══════════════════════════════════════════════════════════ -->
+  <div id="confirmModalOverlay" class="confirm-modal-overlay hidden">
+    <div class="confirm-modal">
+      <p id="confirmModalMessage"></p>
+      <div class="confirm-modal-actions">
+        <button class="btn btn-ghost" id="confirmModalCancelBtn">Zrušit</button>
+        <button class="btn btn-primary" id="confirmModalOkBtn">Potvrdit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
        IMPORT MODAL
   ═══════════════════════════════════════════════════════════ -->
   <div id="importOverlay" class="import-overlay hidden" onclick="closeImportOnBackdrop(event)">
@@ -985,6 +1011,17 @@
         <div class="import-preview-wrap">
           <table id="importPreviewTable" class="import-preview-table"></table>
         </div>
+      </div>
+
+      <!-- Menu-only: confirm which week this text actually belongs to. Shown
+           after AI parsing succeeds; pre-filled with a best-guess week from
+           dates found in the pasted text, but always editable — imports of
+           past menus need to land in their real week, not always "today". -->
+      <div id="importMenuWeekPane" class="import-pane hidden">
+        <h3 style="margin-bottom:.4rem">Pro který týden je tento jídelníček?</h3>
+        <p class="muted" id="importMenuWeekHint" style="font-size:.82rem;margin-bottom:.5rem"></p>
+        <input type="week" id="importMenuWeekPicker" style="padding:.5rem .7rem;border:1.5px solid var(--border);border-radius:8px;font-size:.9rem" />
+        <div id="importMenuDaysPreview" class="import-menu-days-preview"></div>
       </div>
 
       <!-- Per-row error report (filled by renderImportErrors in import.js) -->

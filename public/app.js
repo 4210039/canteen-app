@@ -82,7 +82,7 @@ async function loadCurrentMenuFromCloud() {
   const rows = await res.json();
   if (rows.length) {
     const newest = rows[0]; // already ordered newest-first by the server
-    STATE.currentMenu = { fetchedAt: newest.fetched_at, raw: newest.raw_text || '', days: newest.days_json || [] };
+    STATE.currentMenu = { fetchedAt: newest.fetched_at, weekKey: newest.week_key, raw: newest.raw_text || '', days: newest.days_json || [] };
     STATE.ingredients = Array.isArray(newest.ingredients) && newest.ingredients.length
       ? newest.ingredients
       : extractIngredients(newest.days_json || []);
@@ -151,6 +151,43 @@ function getWeekKey(d = new Date()) {
 function weekKeyLabel(wk) {
   const [year, w] = wk.split('-W');
   return `Týden ${w} / ${year}`;
+}
+
+// ── Non-blocking confirm modal (replaces window.confirm()) ─────────────
+// Same call shape as a boolean confirm, but await-based: `if (!(await
+// showConfirmModal('...'))) return;`. Unlike native confirm(), the wait
+// for the person's answer never blocks the main thread — only one
+// instance is ever open at a time, which matches how this app uses it.
+function showConfirmModal(message) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('confirmModalOverlay');
+    const okBtn = document.getElementById('confirmModalOkBtn');
+    const cancelBtn = document.getElementById('confirmModalCancelBtn');
+    document.getElementById('confirmModalMessage').textContent = message;
+    overlay.classList.remove('hidden');
+
+    function cleanup(result) {
+      overlay.classList.add('hidden');
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    }
+    function onOk() { cleanup(true); }
+    function onCancel() { cleanup(false); }
+    function onBackdrop(e) { if (e.target === overlay) cleanup(false); }
+    function onKey(e) {
+      if (e.key === 'Escape') cleanup(false);
+      if (e.key === 'Enter') cleanup(true);
+    }
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+    okBtn.focus();
+  });
 }
 
 // ── Status indicator ───────────────────────────────────────
@@ -236,7 +273,7 @@ async function fetchMenu() {
       ingredients,
     });
 
-    STATE.currentMenu = { fetchedAt, raw: trimmed, days: parsed };
+    STATE.currentMenu = { fetchedAt, weekKey, raw: trimmed, days: parsed };
     STATE.ingredients = ingredients;
 
     renderMenu();
@@ -3187,33 +3224,48 @@ function populateSavedMenusYearFilter() {
   yearSelect.onchange = () => {
     _selectedWeekKey = null;
     document.getElementById('savedMenuDetail').innerHTML = '';
+    document.getElementById('savedMenusSearchInput').value = '';
     renderSavedMenusWeekList();
   };
   monthSelect.onchange = () => {
     _selectedWeekKey = null;
     document.getElementById('savedMenuDetail').innerHTML = '';
+    document.getElementById('savedMenusSearchInput').value = '';
     renderSavedMenusWeekList();
   };
 }
 
-/** Show the week buttons for the currently selected year+month. */
+/** Show the week buttons for the currently selected year+month, or —
+ * when the search box has text — every week containing a matching dish,
+ * regardless of year/month. Search deliberately overrides the date filter
+ * rather than combining with it: "find this dish" is a different question
+ * than "what's the shape of a specific month", and forcing them to also
+ * pick the right month first to search would defeat the point of search. */
 function renderSavedMenusWeekList() {
   const year = parseInt(document.getElementById('menuFilterYear').value, 10);
   const month = parseInt(document.getElementById('menuFilterMonth').value, 10); // 1-based
   const listEl = document.getElementById('savedMenuWeekList');
+  const query = (document.getElementById('savedMenusSearchInput')?.value || '').trim().toLowerCase();
 
-  // Filter menus whose week starts in the selected year+month
-  const filtered = _savedMenus.filter(m => {
-    const d = weekKeyToDate(m.week_key);
-    return d.getFullYear() === year && (d.getMonth() + 1) === month;
-  });
+  let filtered;
+  if (query) {
+    filtered = _savedMenus.filter(m =>
+      (m.days_json || []).some(d => (d.meals || []).some(meal => (meal.dish || '').toLowerCase().includes(query)))
+    );
+  } else {
+    filtered = _savedMenus.filter(m => {
+      const d = weekKeyToDate(m.week_key);
+      return d.getFullYear() === year && (d.getMonth() + 1) === month;
+    });
+  }
 
   if (!filtered.length) {
-    listEl.innerHTML = `<p class="muted" style="padding:.5rem 0">Žádné jídelníčky pro vybraný měsíc.</p>`;
+    listEl.innerHTML = `<p class="muted" style="padding:.5rem 0">${
+      query ? 'Žádný uložený jídelníček neobsahuje toto jídlo.' : 'Žádné jídelníčky pro vybraný měsíc.'
+    }</p>`;
     return;
   }
 
-  // Sort chronologically (oldest first within the month)
   const sorted = [...filtered].sort((a, b) => a.week_key.localeCompare(b.week_key));
 
   listEl.innerHTML = sorted.map(m => {
@@ -3289,7 +3341,7 @@ async function useSavedMenuAsCurrent(weekKey) {
   }
 
   if (STATE.currentMenu?.days?.length &&
-      !confirm(`Nahradit aktuálně zobrazený jídelníček týdnem ${weekKeyRangeLabel(weekKey)}? Stávající zobrazený jídelníček bude přepsán (uložené záznamy v databázi zůstanou zachovány).`)) {
+      !(await showConfirmModal(`Nahradit aktuálně zobrazený jídelníček týdnem ${weekKeyRangeLabel(weekKey)}? Stávající zobrazený jídelníček bude přepsán (uložené záznamy v databázi zůstanou zachovány).`))) {
     return;
   }
 
@@ -3321,7 +3373,18 @@ async function useSavedMenuAsCurrent(weekKey) {
       lastCheck.textContent = 'Poslední kontrola: ' + new Date(STATE.currentMenu.fetchedAt).toLocaleString('cs-CZ') + ' (z archivu)';
     }
 
-    toast(`Jídelníček ${weekKeyRangeLabel(weekKey)} je nyní aktivní jídelníček.`, 'success');
+    // Auto-recalculate if attendance data is already present for the current week
+    const currentAttWeek = getCurrentAttWeek ? getCurrentAttWeek() : null;
+    const hasAttendance = currentAttWeek && attendanceData[currentAttWeek] &&
+      Object.keys(attendanceData[currentAttWeek]).length > 0;
+    if (hasAttendance) {
+      calcIngredients();
+      toast(`Jídelníček ${weekKeyRangeLabel(weekKey)} je nyní aktivní. Výpočet surovin byl přepočítán.`, 'success');
+    } else {
+      toast(`Jídelníček ${weekKeyRangeLabel(weekKey)} je nyní aktivní jídelníček.`, 'success');
+    }
+    // Always update the stale banner state
+    _updateStaleCalcBanner();
 
     // Scroll back up to the live menu view so the result of the action is
     // immediately visible, instead of leaving the person looking at the
@@ -3389,6 +3452,84 @@ const MEALS_LIST = [
 // Populated ONLY by loadAttendanceWeekFromCloud() (per-week, on demand) —
 // there is no local persistence for this anymore.
 let attendanceData = {};
+
+// ── Auto-save debounce state ─────────────────────────────────────────────────
+// Each week gets its own timer so switching weeks doesn't cancel a pending save.
+const _attSaveTimers = {};
+const ATT_SAVE_DELAY_MS = 1500; // ms of idle time before writing to DB
+
+function _setAutoSaveIndicator(state) {
+  const el = document.getElementById('attAutoSaveIndicator');
+  if (!el) return;
+  if (state === 'pending') {
+    el.textContent = '⏳ Ukládám…';
+    el.className = 'att-autosave-indicator saving';
+  } else if (state === 'ok') {
+    el.textContent = '✅ Uloženo';
+    el.className = 'att-autosave-indicator saved';
+    setTimeout(() => {
+      if (el.className.includes('saved')) { el.textContent = ''; el.className = 'att-autosave-indicator'; }
+    }, 2500);
+  } else if (state === 'error') {
+    el.textContent = '❌ Chyba uložení';
+    el.className = 'att-autosave-indicator error';
+  } else {
+    el.textContent = '';
+    el.className = 'att-autosave-indicator';
+  }
+}
+
+async function _autoSaveAttendanceWeek(weekStr) {
+  const ageGroup = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
+  const weekData = attendanceData[weekStr] || {};
+  const rows = [];
+  for (let d = 0; d < 5; d++) {
+    const dayData = weekData[d] || {};
+    for (const m of MEALS_LIST) {
+      rows.push({
+        org_id: window.SYNC.ORG_ID,
+        week_key: weekStr,
+        day_index: d,
+        meal: m.key,
+        age_group: ageGroup,
+        child_count: parseInt(dayData[m.key]) || 0,
+      });
+    }
+  }
+  _setAutoSaveIndicator('pending');
+  try {
+    await dbPut('/api/db/attendance/bulk', { rows });
+    _setAutoSaveIndicator('ok');
+  } catch (err) {
+    _setAutoSaveIndicator('error');
+    console.error('Auto-save attendance failed:', err);
+  }
+}
+
+function scheduleAutoSave(weekStr) {
+  // Flush immediately any other pending week (safety guard)
+  Object.entries(_attSaveTimers).forEach(([wk, tid]) => {
+    if (wk !== weekStr) {
+      clearTimeout(tid);
+      delete _attSaveTimers[wk];
+      _autoSaveAttendanceWeek(wk); // fire immediately (no await — best effort)
+    }
+  });
+  clearTimeout(_attSaveTimers[weekStr]);
+  _attSaveTimers[weekStr] = setTimeout(async () => {
+    delete _attSaveTimers[weekStr];
+    await _autoSaveAttendanceWeek(weekStr);
+  }, ATT_SAVE_DELAY_MS);
+}
+
+// Flush any pending save (call on week-switch before loading the new week)
+async function flushPendingAutoSave() {
+  for (const [wk, tid] of Object.entries(_attSaveTimers)) {
+    clearTimeout(tid);
+    delete _attSaveTimers[wk];
+    await _autoSaveAttendanceWeek(wk);
+  }
+}
 
 function getCurrentAttWeek() {
   const picker = document.getElementById('attWeekPicker');
@@ -3476,6 +3617,8 @@ function populateAttWeekSelect(year, selectedWeek) {
 async function setAttWeek(weekStr) {
   const normalizedWeek = String(weekStr || '').trim();
   if (!/^\d{4}-W\d{2}$/.test(normalizedWeek)) return;
+  // Flush any pending auto-save for the old week before we switch
+  await flushPendingAutoSave();
 
   const yearSelect = document.getElementById('attYearPicker');
   const weekSelect = document.getElementById('attWeekPicker');
@@ -3508,6 +3651,17 @@ async function setAttWeek(weekStr) {
     toast('Nepodařilo se načíst docházku: ' + err.message, 'error');
   }
   renderAttendanceGrid();
+
+  // Auto-recalculate whenever the week changes:
+  // - If a calculation already exists, always refresh it (keeps results in sync).
+  // - If no calculation exists yet but BOTH a menu and attendance data are present,
+  //   calculate automatically so the user doesn't have to press Přepočítat manually.
+  const _attWeekData = attendanceData[normalizedWeek] || {};
+  const _hasAttData = Object.keys(_attWeekData).length > 0;
+  const _hasMenu = STATE.currentMenu?.days?.length > 0;
+  if (window.LAST_CALC || (_hasAttData && _hasMenu)) {
+    calcIngredients();
+  }
 }
 
 async function focusAttendanceWeekFromImport(weekStr) {
@@ -3602,6 +3756,13 @@ function renderAttendanceGrid() {
       attendanceData[weekStr][day][meal] = val;
       updateDayTotal(weekStr, day);
       updateWeekTotal(weekStr);
+      // Auto-save to DB after brief idle period
+      scheduleAutoSave(weekStr);
+      // Auto-recalculate if menu is ready
+      if (STATE.currentMenu?.days?.length) {
+        clearTimeout(inp._calcTimer);
+        inp._calcTimer = setTimeout(() => calcIngredients(), 600);
+      }
     });
   });
 
@@ -3668,6 +3829,8 @@ async function copyPrevWeek() {
     await dbPut('/api/db/attendance/bulk', { rows });
     await loadAttendanceWeekFromCloud(weekStr);
     renderAttendanceGrid();
+    // Auto-recalc if menu is present
+    if (STATE.currentMenu?.days?.length) calcIngredients();
     toast('Docházka zkopírována z minulého týdne.', 'success');
   } catch (err) {
     toast('Kopírování se nepodařilo uložit: ' + err.message, 'error');
@@ -3836,6 +3999,25 @@ function setSmartBuyMode(on) {
   localStorage.setItem('smartBuyMode', on ? 'on' : 'off');
 }
 
+// ── Stale calc banner ────────────────────────────────────────────────────────
+// Shows a yellow warning when the active menu has changed since the last calc.
+function _updateStaleCalcBanner() {
+  const banner = document.getElementById('staleCalcBanner');
+  if (!banner) return;
+  const calc = window.LAST_CALC;
+  const activeMenuWeek = STATE.currentMenu?.weekKey || null;
+  if (!calc || !activeMenuWeek) {
+    banner.classList.add('hidden');
+    return;
+  }
+  if (calc.menuWeekKey && calc.menuWeekKey !== activeMenuWeek) {
+    banner.textContent = `⚠️ Výpočet pochází z jídelníčku ${weekKeyRangeLabel(calc.menuWeekKey)}. Aktivní jídelníček je ${weekKeyRangeLabel(activeMenuWeek)}. Klikněte „Přepočítat".`;
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+
 function calcIngredients() {
   const weekStr = getCurrentAttWeek();
   const ageGroup = document.getElementById('attAgeGroup')?.value || 'ms_3_6';
@@ -3895,7 +4077,11 @@ function calcIngredients() {
   });
 
   // Store globally so Shopping List (Akce & Nákup) and Sklad (consume week) can use it
-  window.LAST_CALC = { weekKey: weekStr, ageGroup, mealTotals, totalPortions, results };
+  // Track which menu was active when this calculation ran — used by the
+  // stale-calc banner to warn the user if they later switch to a different menu.
+  const calcMenuWeekKey = STATE.currentMenu?.weekKey || null;
+  window.LAST_CALC = { weekKey: weekStr, menuWeekKey: calcMenuWeekKey, ageGroup, mealTotals, totalPortions, results };
+  _updateStaleCalcBanner();
 
   container.innerHTML = `
     <div class="ingr-calc-grid">
@@ -4009,7 +4195,8 @@ async function calcIngredientsForNakup() {
   });
 
   // Update LAST_CALC so "Načíst z výpočtu surovin" and Akce tab work immediately.
-  window.LAST_CALC = { weekKey: weekStr, ageGroup, mealTotals, totalPortions, results };
+  window.LAST_CALC = { weekKey: weekStr, menuWeekKey: STATE.currentMenu?.weekKey || null, ageGroup, mealTotals, totalPortions, results };
+  _updateStaleCalcBanner();
 
   container.innerHTML = `
     <div class="ingr-calc-grid">
@@ -4476,42 +4663,20 @@ function initAttendance() {
   renderAttendanceGrid();
 
   const ageSelect = document.getElementById('attAgeGroup');
-  if (ageSelect) ageSelect.addEventListener('change', renderAttendanceGrid);
-
-  document.getElementById('btnSaveAttendance')?.addEventListener('click', async () => {
-    // Read all inputs and build rows to write to Supabase
-    const week = getCurrentAttWeek();
-    const rows = [];
-    document.querySelectorAll('.att-meal-input').forEach(inp => {
-      const day = parseInt(inp.dataset.day);
-      const meal = inp.dataset.meal;
-      const count = parseInt(inp.value) || 0;
-      rows.push({
-        org_id: window.SYNC.ORG_ID,
-        week_key: week,
-        day_index: day,
-        meal,
-        age_group: document.getElementById('attAgeGroup')?.value || 'ms_3_6',
-        child_count: count,
-      });
-    });
-
-    const btn = document.getElementById('btnSaveAttendance');
-    btn.disabled = true;
-    setStatus('busy', 'Ukládám docházku…');
-    try {
-      await dbPut('/api/db/attendance/bulk', { rows });
-      await loadAttendanceWeekFromCloud(week);
-      renderAttendanceGrid();
-      setStatus('ok', 'Uloženo');
-      toast('Docházka uložena!', 'success');
-    } catch (err) {
-      setStatus('error', 'Chyba ukládání');
-      toast('Docházku se nepodařilo uložit: ' + err.message, 'error');
-    } finally {
-      btn.disabled = false;
+  if (ageSelect) ageSelect.addEventListener('change', () => {
+    renderAttendanceGrid();
+    // Recalc: either refresh an existing result, or auto-calculate if both
+    // menu and attendance data are present.
+    const _agWk = getCurrentAttWeek();
+    const _agHasData = Object.keys(attendanceData[_agWk] || {}).length > 0;
+    if (window.LAST_CALC || (_agHasData && STATE.currentMenu?.days?.length)) {
+      calcIngredients();
     }
   });
+
+  // btnSaveAttendance removed — attendance is now saved automatically via
+  // debounced auto-save (scheduleAutoSave) on every input change.
+  // The indicator #attAutoSaveIndicator shows the save state.
 
   document.getElementById('btnCopyPrevWeek')?.addEventListener('click', copyPrevWeek);
   document.getElementById('btnCalcIngredients')?.addEventListener('click', calcIngredients);
