@@ -837,7 +837,7 @@
         <button class="btn btn-secondary" onclick="openImport('attendanceRoster')">📥 Import měsíčního přehledu (.xlsx)</button>
         <button class="btn btn-secondary" onclick="openExport('attendance')">📤 Export</button>
         <button class="btn btn-secondary btn-sm" id="btnCopyPrevWeek">📋 Kopírovat minulý týden</button>
-        <button class="btn btn-primary" id="btnSaveAttendance">💾 Uložit docházku</button>
+        <span id="attAutoSaveIndicator" class="att-autosave-indicator" title="Docházka se ukládá automaticky"></span>
       </div>
     </div>
 
@@ -875,12 +875,13 @@
     <!-- Ingredient calculator -->
     <div class="section-title mt-2">
       <h3>🧮 Výpočet surovin dle docházky a norem</h3>
-      <button class="btn btn-secondary btn-sm" id="btnCalcIngredients">Přepočítat</button>
+      <button class="btn btn-secondary btn-sm" id="btnCalcIngredients">🔄 Přepočítat</button>
     </div>
+    <div id="staleCalcBanner" class="stale-calc-banner hidden"></div>
     <div id="ingredientCalcResult">
       <div class="empty-state">
         <span class="empty-icon">🧮</span>
-        <p>Zadejte docházku a klikněte „Přepočítat" pro výpočet potřebných surovin dle státních norem.</p>
+        <p>Zadejte docházku — výpočet proběhne automaticky. Tlačítko „Přepočítat" je k dispozici pro ruční přepočet.</p>
       </div>
     </div>
   </section>
