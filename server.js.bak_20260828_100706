@@ -105,7 +105,7 @@ app.post('/api/extract-recipe-from-url', async (req, res) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL || 'qwen/qwen3.6-27b',
+        model: 'llama-3.3-70b-versatile',
         max_tokens: 1200,
         messages: [
           { role: 'system', content: 'Jsi kuchař. Z textu webové stránky s receptem vytáhneš skutečný seznam ingrediencí. Vracíš POUZE čisté JSON pole, bez markdown, bez vysvětlení.' },
@@ -168,7 +168,6 @@ app.get('/api/public-config', (req, res) => {
     supabaseUrl: process.env.SUPABASE_URL || null,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
     dbConfigured: isDbConfigured(),
-    groqModel: process.env.GROQ_MODEL || 'qwen/qwen3.6-27b',
   });
 });
 

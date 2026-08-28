@@ -35,10 +35,6 @@ window.AUTH = (function () {
       return { dbConfigured: false };
     }
 
-    // Expose Groq model globally so app.js and import.js can use it
-    // without hardcoding — model is configured in .env as GROQ_MODEL
-    window.GROQ_MODEL = config.groqModel || 'qwen/qwen3.6-27b';
-
     supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
 
     // Restore existing session (page refresh, returning visit)

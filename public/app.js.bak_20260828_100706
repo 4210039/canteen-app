@@ -295,7 +295,7 @@ async function fetchMenu() {
 
 async function groqParseMenu(menuText) {
   const body = {
-    model: window.GROQ_MODEL || 'qwen/qwen3.6-27b',
+    model: 'llama-3.3-70b-versatile',
     max_tokens: 4000,
     messages: [
       {
@@ -1028,7 +1028,7 @@ async function suggestRecipeIngredientsFromAI() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: window.GROQ_MODEL || 'qwen/qwen3.6-27b',
+        model: 'llama-3.3-70b-versatile',
         max_tokens: 1000,
         messages: [
           { role: 'system', content: 'Jsi kuchař ve školní jídelně. Vracíš POUZE čisté JSON bez markdown bloků, bez vysvětlení.' },
