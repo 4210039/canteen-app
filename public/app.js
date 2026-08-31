@@ -258,7 +258,9 @@ async function fetchMenu() {
 
     // Ask Groq to parse
     setStatus('busy', 'Analyzuji jídelníček…');
-    const parsed = await groqParseMenu(trimmed);
+    const parsedRaw = await groqParseMenu(trimmed);
+    // Normalize: split legacy Oběd entries with semicolons into Polévka + Hlavní jídlo
+    const parsed = normalizeMealDays(parsedRaw);
     const ingredients = extractIngredients(parsed);
 
     // Write to Supabase FIRST — it's the only place this data lives.
@@ -304,7 +306,19 @@ async function groqParseMenu(menuText) {
       },
       {
         role: 'user',
-        content: `Analyzuj tento text jídelníčku školní jídelny a extrahuj strukturovaná data.
+        content: `Analyzuj tento text jídelníčku školní jídeln y a extrahuj strukturovaná data.
+
+Důležité PRAVIDLO PRO OBĚD:
+Oběd v české školní jídelně se skládá z POLÉVKY a HLAVNÍHO JÍDLA.
+Pokud jsou v textu odděleny středníkem (;), rozděl je na dvě položky:
+  - label „Polévka“: první část před středníkem
+  - label „Hlavní jídlo“: druhá část za středníkem (včetně příloh a salátů)
+
+Příklad vstupu:  "Rajská polévka s čočkou; Zapečené těstoviny s uzeným masem"
+Příklad výstupu: Polévka = "Rajská polévka s čočkou", Hlavní jídlo = "Zapečené těstoviny s uzeným masem"
+
+Pokud oběd středník neobsahuje, dej celý text do "Hlavní jídlo" a Polévku vynech.
+
 Vrať POUZE JSON v tomto formátu (bez markdown, bez vysvětlení):
 {
   "week": "popis týdne nebo datum",
@@ -314,7 +328,8 @@ Vrať POUZE JSON v tomto formátu (bez markdown, bez vysvětlení):
       "date": "DD.MM.",
       "meals": [
         {"label": "Přesnídávka", "dish": "název jídla"},
-        {"label": "Oběd", "dish": "název jídla"},
+        {"label": "Polévka", "dish": "název polévky nebo prázdný řetězec pokud není"},
+        {"label": "Hlavní jídlo", "dish": "název hlavního jídla s přílohou"},
         {"label": "Svačina", "dish": "název jídla"}
       ]
     }
@@ -357,6 +372,36 @@ function extractIngredients(days) {
   return dishes;
 }
 
+// ── Soup / main-course splitter ──────────────────────────────────────────────
+// When AI already split the obed into separate Polévka + Hlavní jídlo meals,
+// this is a no-op for those entries. For legacy data or menus where the AI
+// returned a single "Oběd" entry with a semicolon, we split it here so the
+// UI always shows two rows consistently.
+function normalizeMealDays(days) {
+  const result = [];
+  for (const day of (days || [])) {
+    const normalized = [];
+    for (const meal of (day.meals || [])) {
+      // Already split by AI into Polévka / Hlavní jídlo — keep as-is
+      if (meal.label === 'Polévka' || meal.label === 'Hlavní jídlo') {
+        normalized.push(meal);
+        continue;
+      }
+      // Legacy "Oběd" with semicolon separator — split now
+      if (meal.label === 'Oběd' && meal.dish && meal.dish.includes(';')) {
+        const parts = meal.dish.split(';').map(s => s.trim()).filter(Boolean);
+        normalized.push({ label: 'Polévka',     dish: parts[0] || '' });
+        normalized.push({ label: 'Hlavní jídlo', dish: parts.slice(1).join('; ') });
+        continue;
+      }
+      // Everything else (Přesnídávka, Svačina, unsplit Oběd) — keep as-is
+      normalized.push(meal);
+    }
+    result.push({ ...day, meals: normalized });
+  }
+  return result;
+}
+
 function renderMenu() {
   const container = document.getElementById('menuContent');
   if (!STATE.currentMenu || !STATE.currentMenu.days?.length) {
@@ -367,7 +412,8 @@ function renderMenu() {
   const grid = document.createElement('div');
   grid.className = 'week-grid';
 
-  for (const day of STATE.currentMenu.days) {
+  const normalizedDays = normalizeMealDays(STATE.currentMenu.days);
+  for (const day of normalizedDays) {
     const card = document.createElement('div');
     card.className = 'day-card';
     const meals = (day.meals || []).map(m => {
@@ -3301,7 +3347,8 @@ function selectSavedMenuWeek(weekKey) {
   const grid = document.createElement('div');
   grid.className = 'week-grid';
 
-  for (const day of days) {
+  const archiveDays = normalizeMealDays(days);
+  for (const day of archiveDays) {
     const card = document.createElement('div');
     card.className = 'day-card';
     const meals = (day.meals || []).map(m =>

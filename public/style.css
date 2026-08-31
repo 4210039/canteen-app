@@ -157,7 +157,15 @@ input, select { font: inherit; }
   transition: opacity .15s, transform .15s;
 }
 .meal-recipe-btn:hover { opacity: 1; transform: scale(1.15); }
-.day-card .meal-label { font-size: .72rem; color: var(--ink-light); }
+.day-card /* Polévka / Hlavní jídlo — distinct visual style for split lunch */
+.meal-label[data-type="soup"] { color: var(--amber); }
+.meal-label[data-type="main"] { color: var(--green); }
+.meal-soup-divider {
+  height: 1px; background: var(--border);
+  margin: .2rem 0; opacity: .5;
+}
+
+.meal-label { font-size: .72rem; color: var(--ink-light); }
 .meal-suggestion-row { margin: -.05rem 0 .35rem; }
 .meal-suggest-btn {
   display: inline-block; max-width: 100%;
