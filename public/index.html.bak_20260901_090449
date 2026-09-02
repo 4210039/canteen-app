@@ -714,51 +714,6 @@
       </div>
     </div>
 
-    <div class="card settings-card" id="beverageDictCard">
-      <h3>🥛 Slovník nápojů</h3>
-      <p class="muted" style="margin-bottom:.75rem;font-size:.84rem">
-        Aplikace automaticky rozpoznává nápoje a odděluje je od jídel.
-        Přidejte nápoje které nejsou rozpoznány. Fallback: 14 běžných nápojů je vždy k dispozici.
-      </p>
-      <div id="beverageDictList"><p class="muted">Načítám…</p></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 90px 80px 80px auto;gap:.5rem;align-items:end;margin-top:1rem">
-        <div>
-          <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.2rem">Název</label>
-          <input type="text" id="bevName" placeholder="např. mléko" style="width:100%;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;font-size:.83rem">
-        </div>
-        <div>
-          <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.2rem">Aliasy (čárkou)</label>
-          <input type="text" id="bevAliases" placeholder="mlíko, plnotučné mléko" style="width:100%;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;font-size:.83rem">
-        </div>
-        <div>
-          <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.2rem">Kategorie</label>
-          <select id="bevCategory" style="width:100%;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;font-size:.83rem">
-            <option value="milk">Mléko</option>
-            <option value="cocoa">Kakao</option>
-            <option value="juice">Džus</option>
-            <option value="tea">Čaj</option>
-            <option value="water">Voda</option>
-            <option value="other">Jiné</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.2rem">ml/porci</label>
-          <input type="number" id="bevMl" value="200" min="50" max="500" style="width:100%;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;font-size:.83rem">
-        </div>
-        <div>
-          <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.2rem">Do normy</label>
-          <select id="bevNorm" style="width:100%;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;font-size:.83rem">
-            <option value="false">❌ Ne</option>
-            <option value="true">✅ Ano</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:.78rem;display:block;margin-bottom:.2rem">&nbsp;</label>
-          <button class="btn btn-primary btn-sm" onclick="beverageAdd()">+ Přidat</button>
-        </div>
-      </div>
-    </div>
-
     <div class="card settings-card danger-zone" id="dataManagementCard">
       <h3>🗂️ Správa dat</h3>
       <p class="muted" style="margin-bottom:1rem">Vyberte doménu a přesně co chcete smazat. Každá akce je nevratná a dotkne se všech uživatelů organizace. Před smazáním doporučujeme stáhnout zálohu.</p>

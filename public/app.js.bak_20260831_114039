@@ -232,7 +232,6 @@ function switchTab(name) {
   });
   if (name === 'nakup') loadNakupWeekShortcuts();
   if (name === 'recepty') renderRecipeList();
-  if (name === 'settings') beverageRenderList();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -320,21 +319,22 @@ Příklad výstupu: Polévka = "Rajská polévka s čočkou", Hlavní jídlo = "
 
 Pokud oběd středník neobsahuje, dej celý text do "Hlavní jídlo" a Polévku vynech.
 
-PRAVIDLO PRO SALÁT: Pokud Hlavní jídlo obsahuje salát (okurkový salát, coleslaw apod.), vydel ho jako samostatný label "Salát".
-
-PRAVIDLO PRO NÁPOJE: Pokud je na konci Přesnídávky nebo Svačiny nápoj (mléko, kakao, čaj, džus, voda), vydel ho jako label "Nápoj".
-
-Vrať POUZE JSON (bez markdown):
-{"week":"...","days":[{"name":"Pondělí","date":"DD.MM.","meals":[
-  {"label":"Přesnídávka","dish":"jídlo bez nápoje"},
-  {"label":"Nápoj","dish":"nápoj"},
-  {"label":"Polévka","dish":"polévka"},
-  {"label":"Hlavní jídlo","dish":"jídlo bez salátu"},
-  {"label":"Salát","dish":"salát"},
-  {"label":"Svačina","dish":"jídlo bez nápoje"},
-  {"label":"Nápoj","dish":"nápoj"}
-]}]}
-Položky s prázdným dish vynech.
+Vrať POUZE JSON v tomto formátu (bez markdown, bez vysvětlení):
+{
+  "week": "popis týdne nebo datum",
+  "days": [
+    {
+      "name": "Pondělí",
+      "date": "DD.MM.",
+      "meals": [
+        {"label": "Přesnídávka", "dish": "název jídla"},
+        {"label": "Polévka", "dish": "název polévky nebo prázdný řetězec pokud není"},
+        {"label": "Hlavní jídlo", "dish": "název hlavního jídla s přílohou"},
+        {"label": "Svačina", "dish": "název jídla"}
+      ]
+    }
+  ]
+}
 
 Text jídelníčku:
 ${menuText}`
@@ -372,138 +372,32 @@ function extractIngredients(days) {
   return dishes;
 }
 
-let BEVERAGE_DICT = []; // filled from DB after login; falls back to BEVERAGE_FALLBACK
-
-const BEVERAGE_FALLBACK = [
-  { name: 'mléko',             aliases: ['mlíko','plnotučné mléko','polotučné mléko'] },
-  { name: 'kakao',             aliases: ['kakaový nápoj','teplé kakao'] },
-  { name: 'acidofilní mléko',  aliases: ['acidofilní','acidko'] },
-  { name: 'kefír',             aliases: ['kefírové mléko'] },
-  { name: 'bílá káva',         aliases: ['bílé kafe'] },
-  { name: 'ovocný čaj',       aliases: ['ovocný čaj s medem','ovocný čaj s citronem','ovocný čaj s medem a citronem','ovocný čaj s medem a limetkou'] },
-  { name: 'černý čaj',         aliases: ['čaj','čaj s medem','čaj s citronem','čaj s medem a citronem','čaj s medem a limetkou'] },
-  { name: 'zelený čaj',         aliases: ['zelený čaj s medem'] },
-  { name: 'bylinkový čaj',     aliases: ['bylinný čaj','bylinkový čaj s medem'] },
-  { name: 'šípkový čaj',       aliases: ['šípkový čaj s medem'] },
-  { name: 'ječmenná káva',     aliases: ['melta','Melta','ječmen'] },
-  { name: 'rooibos',           aliases: ['rooibos čaj'] },
-  { name: 'ovocný džus',       aliases: ['džus','jablečný džus','pomerančový džus','multivitaminový džus'] },
-  { name: 'voda',              aliases: ['pitná voda','pramenitá voda','minerální voda'] },
-];
-
-const SALAT_KEYWORDS = [
-  'salát','salátkem','coleslaw','okurkový salát','zelný salát',
-  'rajčatový salát','mrkvový salát','zeleninovbý salát',
-  'křimický salát','fazolový salát','řepný salát','čínský salát',
-];
-
-function _activeBeverageDict() {
-  return BEVERAGE_DICT.length ? BEVERAGE_DICT : BEVERAGE_FALLBACK;
-}
-
-// ── Meal normalizer: soup + salát + nápoj ───────────────────────────────
-function _matchBeverage(token) {
-  var t = token.toLowerCase().trim();
-  var dict = _activeBeverageDict();
-  for (var i = 0; i < dict.length; i++) {
-    var bev = dict[i];
-    var bn = bev.name.toLowerCase();
-    if (t === bn) return bev;
-    var aliases = bev.aliases || [];
-    for (var j = 0; j < aliases.length; j++) {
-      if (t === aliases[j].toLowerCase()) return bev;
-    }
-    if (bn.length >= 4 && (t.includes(bn) || bn.includes(t))) return bev;
-    for (var k = 0; k < aliases.length; k++) {
-      var al = aliases[k].toLowerCase();
-      if (al.length >= 4 && (t.includes(al) || al.includes(t))) return bev;
-    }
-  }
-  return null;
-}
-
-function _matchSalat(token) {
-  var t = token.toLowerCase().trim();
-  for (var i = 0; i < SALAT_KEYWORDS.length; i++) {
-    if (t.includes(SALAT_KEYWORDS[i])) return true;
-  }
-  return false;
-}
-
-function _splitBeverage(dishStr) {
-  if (!dishStr) return { dish: dishStr, napoj: null };
-  var parts = dishStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-  if (parts.length < 2) return { dish: dishStr, napoj: null };
-  for (var i = parts.length - 1; i >= Math.max(0, parts.length - 2); i--) {
-    if (_matchBeverage(parts[i])) {
-      var remaining = parts.filter(function(_, idx){ return idx !== i; }).join(', ');
-      return { dish: remaining, napoj: parts[i] };
-    }
-  }
-  return { dish: dishStr, napoj: null };
-}
-
-function _splitSalat(dishStr) {
-  if (!dishStr) return { dish: dishStr, salat: null };
-  var parts = dishStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-  if (parts.length < 2) return { dish: dishStr, salat: null };
-  var idx = -1;
-  for (var i = 0; i < parts.length; i++) {
-    if (_matchSalat(parts[i])) { idx = i; break; }
-  }
-  if (idx === -1) return { dish: dishStr, salat: null };
-  return { dish: parts.filter(function(_, i){ return i !== idx; }).join(', '), salat: parts[idx] };
-}
-
+// ── Soup / main-course splitter ──────────────────────────────────────────────
+// When AI already split the obed into separate Polévka + Hlavní jídlo meals,
+// this is a no-op for those entries. For legacy data or menus where the AI
+// returned a single "Oběd" entry with a semicolon, we split it here so the
+// UI always shows two rows consistently.
 function normalizeMealDays(days) {
-  var result = [];
-  for (var di = 0; di < (days || []).length; di++) {
-    var day = days[di];
-    var normalized = [];
-    var meals = day.meals || [];
-    for (var mi = 0; mi < meals.length; mi++) {
-      var meal = meals[mi];
-      var dish = (meal.dish || '').trim();
-
-      // Already-split labels pass through unchanged
-      if (meal.label === 'Nápoj' || meal.label === 'Salát') {
-        normalized.push(meal); continue;
-      }
-
-      // Polévka — extract beverage edge case only
-      if (meal.label === 'Polévka') {
-        var spb = _splitBeverage(dish);
-        normalized.push(Object.assign({}, meal, { dish: spb.dish }));
-        if (spb.napoj) normalized.push({ label: 'Nápoj', dish: spb.napoj });
+  const result = [];
+  for (const day of (days || [])) {
+    const normalized = [];
+    for (const meal of (day.meals || [])) {
+      // Already split by AI into Polévka / Hlavní jídlo — keep as-is
+      if (meal.label === 'Polévka' || meal.label === 'Hlavní jídlo') {
+        normalized.push(meal);
         continue;
       }
-
-      // Hlavní jídlo — split salát then beverage
-      if (meal.label === 'Hlavní jídlo') {
-        var sps = _splitSalat(dish);
-        var spb2 = _splitBeverage(sps.dish);
-        normalized.push(Object.assign({}, meal, { dish: spb2.dish }));
-        if (sps.salat) normalized.push({ label: 'Salát',  dish: sps.salat });
-        if (spb2.napoj) normalized.push({ label: 'Nápoj', dish: spb2.napoj });
+      // Legacy "Oběd" with semicolon separator — split now
+      if (meal.label === 'Oběd' && meal.dish && meal.dish.includes(';')) {
+        const parts = meal.dish.split(';').map(s => s.trim()).filter(Boolean);
+        normalized.push({ label: 'Polévka',     dish: parts[0] || '' });
+        normalized.push({ label: 'Hlavní jídlo', dish: parts.slice(1).join('; ') });
         continue;
       }
-
-      // Legacy "Oběd" with semicolon — split into Polévka + Hlavní jídlo
-      if (meal.label === 'Oběd' && dish.includes(';')) {
-        var parts = dish.split(';').map(function(s){ return s.trim(); }).filter(Boolean);
-        var fakeSoup = normalizeMealDays([Object.assign({}, day, { meals: [{ label: 'Polévka',      dish: parts[0] || '' }] })]);
-        var fakeMain = normalizeMealDays([Object.assign({}, day, { meals: [{ label: 'Hlavní jídlo', dish: parts.slice(1).join('; ') }] })]);
-        Array.prototype.push.apply(normalized, fakeSoup[0].meals);
-        Array.prototype.push.apply(normalized, fakeMain[0].meals);
-        continue;
-      }
-
-      // Přesnídávka / Svačina / unsplit Oběd — split beverage from end
-      var spb3 = _splitBeverage(dish);
-      normalized.push(Object.assign({}, meal, { dish: spb3.dish }));
-      if (spb3.napoj) normalized.push({ label: 'Nápoj', dish: spb3.napoj });
+      // Everything else (Přesnídávka, Svačina, unsplit Oběd) — keep as-is
+      normalized.push(meal);
     }
-    result.push(Object.assign({}, day, { meals: normalized }));
+    result.push({ ...day, meals: normalized });
   }
   return result;
 }
@@ -2575,95 +2469,6 @@ document.addEventListener('click', e => {
 });
 
 // ══════════════════════════════════════════════════════════
-// ══════════════════════════════
-// BEVERAGE DICTIONARY UI
-// ══════════════════════════════
-
-var BEV_CAT_LABELS = { milk:'Mléko', cocoa:'Kakao', juice:'Džus', tea:'Čaj', water:'Voda', other:'Jiné' };
-
-async function beverageRenderList() {
-  var el = document.getElementById('beverageDictList');
-  if (!el) return;
-  var orgId = window.SYNC && window.SYNC.ORG_ID;
-  if (!orgId) { el.innerHTML = '<p class="muted">Nejste přihlášeni.</p>'; return; }
-  try {
-    var data = await dbGet('/api/db/beverages/' + orgId);
-    BEVERAGE_DICT = Array.isArray(data) && data.length ? data : BEVERAGE_FALLBACK;
-    if (!data || !data.length) {
-      el.innerHTML = '<p class="muted" style="font-size:.83rem">Slovník je prázdný — používají se předdefinované nápoje. Přidejte vlastní níže.</p>';
-      return;
-    }
-    var rows = data.map(function(b) {
-      return '<tr>'
-        + '<td><strong>' + escHtml(b.name) + '</strong></td>'
-        + '<td class="muted" style="font-size:.78rem">' + escHtml((b.aliases||[]).join(', ') || '–') + '</td>'
-        + '<td><span class="bev-cat-badge bev-cat-' + escHtml(b.category||'other') + '">'
-          + escHtml(BEV_CAT_LABELS[b.category] || b.category) + '</span></td>'
-        + '<td>' + b.ml_per_serving + ' ml</td>'
-        + '<td><span class="bev-norm-badge ' + (b.counts_as_norm ? 'bev-norm-yes':'bev-norm-no') + '">'
-          + (b.counts_as_norm ? '✅ Ano' : '❌ Ne') + '</span></td>'
-        + '<td style="display:flex;gap:.35rem">'
-          + '<button class="btn btn-secondary btn-sm" onclick="beverageEdit(\'' + b.id + '\')">&#9998;</button>'
-          + '<button class="btn btn-danger btn-sm" onclick="beverageDelete(\'' + b.id + '\')">&#128465;</button>'
-        + '</td></tr>';
-    }).join('');
-    el.innerHTML = '<table class="bev-table"><thead><tr>'
-      + '<th>Název</th><th>Aliasy</th><th>Kategorie</th><th>ml/porci</th><th>Norma</th><th></th>'
-      + '</tr></thead><tbody>' + rows + '</tbody></table>';
-  } catch (err) {
-    el.innerHTML = '<p class="muted">Chyba: ' + escHtml(err.message) + '</p>';
-  }
-}
-
-async function beverageAdd() {
-  var name    = (document.getElementById('bevName') && document.getElementById('bevName').value || '').trim();
-  var aliasRaw= document.getElementById('bevAliases') && document.getElementById('bevAliases').value || '';
-  var aliases = aliasRaw.split(',').map(function(s){return s.trim();}).filter(Boolean);
-  var category= document.getElementById('bevCategory') && document.getElementById('bevCategory').value || 'other';
-  var ml      = parseFloat(document.getElementById('bevMl') && document.getElementById('bevMl').value) || 200;
-  var norm    = document.getElementById('bevNorm') && document.getElementById('bevNorm').value === 'true';
-  var orgId   = window.SYNC && window.SYNC.ORG_ID;
-  if (!name)  { toast('Zadejte název nápoje.', 'error'); return; }
-  if (!orgId) { toast('Nejste přihlášeni.', 'error'); return; }
-  try {
-    await dbPost('/api/db/beverages', { org_id: orgId, name: name, aliases: aliases, category: category, ml_per_serving: ml, counts_as_norm: norm });
-    document.getElementById('bevName').value = '';
-    document.getElementById('bevAliases').value = '';
-    await beverageRenderList();
-    toast('Nápoj "' + name + '" přidán.', 'success');
-  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
-}
-
-async function beverageEdit(id) {
-  var dict = _activeBeverageDict();
-  var bev  = null;
-  for (var i = 0; i < dict.length; i++) { if (dict[i].id === id) { bev = dict[i]; break; } }
-  if (!bev) return;
-  var name     = prompt('Název:', bev.name);
-  if (name === null) return;
-  var aliasStr = prompt('Aliasy (oddělit čárkou):', (bev.aliases||[]).join(', '));
-  if (aliasStr === null) return;
-  var aliases  = aliasStr.split(',').map(function(s){return s.trim();}).filter(Boolean);
-  try {
-    await dbPut('/api/db/beverages/' + id, { name: name.trim(), aliases: aliases, category: bev.category, ml_per_serving: bev.ml_per_serving, counts_as_norm: bev.counts_as_norm });
-    await beverageRenderList();
-    toast('Nápoj aktualizován.', 'success');
-  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
-}
-
-async function beverageDelete(id) {
-  if (!await showConfirmModal('Smazat tento nápoj ze slovníku?')) return;
-  try {
-    await dbDelete('/api/db/beverages/' + id);
-    await beverageRenderList();
-    toast('Nápoj smazán.', 'success');
-  } catch (err) { toast('Chyba: ' + err.message, 'error'); }
-}
-
-window.beverageAdd    = beverageAdd;
-window.beverageEdit   = beverageEdit;
-window.beverageDelete = beverageDelete;
-
 // DATA MANAGEMENT (Správa dat)
 // ══════════════════════════════════════════════════════════
 
@@ -3231,8 +3036,6 @@ async function showApp() {
   renderAccountInfo();
 
   const ok = await refreshAllFromCloud();
-  // Load beverage dict here — dbGet is defined, showApp only runs post-login
-  await loadBeverageDictFromCloud();
   renderAll();
   loadSavedCustomProducts();
   loadHiddenSubcategories();
@@ -3696,32 +3499,6 @@ const MEALS_LIST = [
 // Populated ONLY by loadAttendanceWeekFromCloud() (per-week, on demand) —
 // there is no local persistence for this anymore.
 let attendanceData = {};
-// ════════════════════════════════════════════════════════════════════════
-// BEVERAGE & SALÁT RECOGNITION
-// Pure constants — no async, no DB calls, no startup side effects.
-// loadBeverageDictFromCloud() is called lazily from beverageRenderList()
-// (Settings tab) and from showApp() AFTER full JS parse completes.
-// normalizeMealDays() reads BEVERAGE_DICT synchronously at call time.
-// ════════════════════════════════════════════════════════════════════════
-
-
-
-
-
-
-// Loads beverage dict from DB — called lazily (Settings tab open or showApp)
-async function loadBeverageDictFromCloud() {
-  var orgId = window.SYNC && window.SYNC.ORG_ID;
-  if (!orgId) { BEVERAGE_DICT = BEVERAGE_FALLBACK; return; }
-  try {
-    var data = await dbGet('/api/db/beverages/' + orgId);
-    BEVERAGE_DICT = Array.isArray(data) && data.length ? data : BEVERAGE_FALLBACK;
-  } catch (e) {
-    console.warn('[beverages] DB load failed, using fallback:', e.message);
-    BEVERAGE_DICT = BEVERAGE_FALLBACK;
-  }
-}
-
 
 // ── Auto-save debounce state ─────────────────────────────────────────────────
 // Each week gets its own timer so switching weeks doesn't cancel a pending save.

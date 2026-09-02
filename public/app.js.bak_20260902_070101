@@ -372,89 +372,7 @@ function extractIngredients(days) {
   return dishes;
 }
 
-let BEVERAGE_DICT = []; // filled from DB after login; falls back to BEVERAGE_FALLBACK
-
-const BEVERAGE_FALLBACK = [
-  { name: 'mléko',             aliases: ['mlíko','plnotučné mléko','polotučné mléko'] },
-  { name: 'kakao',             aliases: ['kakaový nápoj','teplé kakao'] },
-  { name: 'acidofilní mléko',  aliases: ['acidofilní','acidko'] },
-  { name: 'kefír',             aliases: ['kefírové mléko'] },
-  { name: 'bílá káva',         aliases: ['bílé kafe'] },
-  { name: 'ovocný čaj',       aliases: ['ovocný čaj s medem','ovocný čaj s citronem','ovocný čaj s medem a citronem','ovocný čaj s medem a limetkou'] },
-  { name: 'černý čaj',         aliases: ['čaj','čaj s medem','čaj s citronem','čaj s medem a citronem','čaj s medem a limetkou'] },
-  { name: 'zelený čaj',         aliases: ['zelený čaj s medem'] },
-  { name: 'bylinkový čaj',     aliases: ['bylinný čaj','bylinkový čaj s medem'] },
-  { name: 'šípkový čaj',       aliases: ['šípkový čaj s medem'] },
-  { name: 'ječmenná káva',     aliases: ['melta','Melta','ječmen'] },
-  { name: 'rooibos',           aliases: ['rooibos čaj'] },
-  { name: 'ovocný džus',       aliases: ['džus','jablečný džus','pomerančový džus','multivitaminový džus'] },
-  { name: 'voda',              aliases: ['pitná voda','pramenitá voda','minerální voda'] },
-];
-
-const SALAT_KEYWORDS = [
-  'salát','salátkem','coleslaw','okurkový salát','zelný salát',
-  'rajčatový salát','mrkvový salát','zeleninovbý salát',
-  'křimický salát','fazolový salát','řepný salát','čínský salát',
-];
-
-function _activeBeverageDict() {
-  return BEVERAGE_DICT.length ? BEVERAGE_DICT : BEVERAGE_FALLBACK;
-}
-
 // ── Meal normalizer: soup + salát + nápoj ───────────────────────────────
-function _matchBeverage(token) {
-  var t = token.toLowerCase().trim();
-  var dict = _activeBeverageDict();
-  for (var i = 0; i < dict.length; i++) {
-    var bev = dict[i];
-    var bn = bev.name.toLowerCase();
-    if (t === bn) return bev;
-    var aliases = bev.aliases || [];
-    for (var j = 0; j < aliases.length; j++) {
-      if (t === aliases[j].toLowerCase()) return bev;
-    }
-    if (bn.length >= 4 && (t.includes(bn) || bn.includes(t))) return bev;
-    for (var k = 0; k < aliases.length; k++) {
-      var al = aliases[k].toLowerCase();
-      if (al.length >= 4 && (t.includes(al) || al.includes(t))) return bev;
-    }
-  }
-  return null;
-}
-
-function _matchSalat(token) {
-  var t = token.toLowerCase().trim();
-  for (var i = 0; i < SALAT_KEYWORDS.length; i++) {
-    if (t.includes(SALAT_KEYWORDS[i])) return true;
-  }
-  return false;
-}
-
-function _splitBeverage(dishStr) {
-  if (!dishStr) return { dish: dishStr, napoj: null };
-  var parts = dishStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-  if (parts.length < 2) return { dish: dishStr, napoj: null };
-  for (var i = parts.length - 1; i >= Math.max(0, parts.length - 2); i--) {
-    if (_matchBeverage(parts[i])) {
-      var remaining = parts.filter(function(_, idx){ return idx !== i; }).join(', ');
-      return { dish: remaining, napoj: parts[i] };
-    }
-  }
-  return { dish: dishStr, napoj: null };
-}
-
-function _splitSalat(dishStr) {
-  if (!dishStr) return { dish: dishStr, salat: null };
-  var parts = dishStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-  if (parts.length < 2) return { dish: dishStr, salat: null };
-  var idx = -1;
-  for (var i = 0; i < parts.length; i++) {
-    if (_matchSalat(parts[i])) { idx = i; break; }
-  }
-  if (idx === -1) return { dish: dishStr, salat: null };
-  return { dish: parts.filter(function(_, i){ return i !== idx; }).join(', '), salat: parts[idx] };
-}
-
 function normalizeMealDays(days) {
   var result = [];
   for (var di = 0; di < (days || []).length; di++) {
@@ -3704,10 +3622,87 @@ let attendanceData = {};
 // normalizeMealDays() reads BEVERAGE_DICT synchronously at call time.
 // ════════════════════════════════════════════════════════════════════════
 
+let BEVERAGE_DICT = []; // filled from DB after login; falls back to BEVERAGE_FALLBACK
 
+const BEVERAGE_FALLBACK = [
+  { name: 'mléko',             aliases: ['mlíko','plnotučné mléko','polotučné mléko'] },
+  { name: 'kakao',             aliases: ['kakaový nápoj','teplé kakao'] },
+  { name: 'acidofilní mléko',  aliases: ['acidofilní','acidko'] },
+  { name: 'kefír',             aliases: ['kefírové mléko'] },
+  { name: 'bílá káva',         aliases: ['bílé kafe'] },
+  { name: 'ovocný čaj',       aliases: ['ovocný čaj s medem','ovocný čaj s citronem','ovocný čaj s medem a citronem','ovocný čaj s medem a limetkou'] },
+  { name: 'černý čaj',         aliases: ['čaj','čaj s medem','čaj s citronem','čaj s medem a citronem','čaj s medem a limetkou'] },
+  { name: 'zelený čaj',         aliases: ['zelený čaj s medem'] },
+  { name: 'bylinkový čaj',     aliases: ['bylinný čaj','bylinkový čaj s medem'] },
+  { name: 'šípkový čaj',       aliases: ['šípkový čaj s medem'] },
+  { name: 'ječmenná káva',     aliases: ['melta','Melta','ječmen'] },
+  { name: 'rooibos',           aliases: ['rooibos čaj'] },
+  { name: 'ovocný džus',       aliases: ['džus','jablečný džus','pomerančový džus','multivitaminový džus'] },
+  { name: 'voda',              aliases: ['pitná voda','pramenitá voda','minerální voda'] },
+];
 
+const SALAT_KEYWORDS = [
+  'salát','salátkem','coleslaw','okurkový salát','zelný salát',
+  'rajčatový salát','mrkvový salát','zeleninovbý salát',
+  'křimický salát','fazolový salát','řepný salát','čínský salát',
+];
 
+function _activeBeverageDict() {
+  return BEVERAGE_DICT.length ? BEVERAGE_DICT : BEVERAGE_FALLBACK;
+}
 
+function _matchBeverage(token) {
+  var t = token.toLowerCase().trim();
+  var dict = _activeBeverageDict();
+  for (var i = 0; i < dict.length; i++) {
+    var bev = dict[i];
+    var bn = bev.name.toLowerCase();
+    if (t === bn) return bev;
+    var aliases = bev.aliases || [];
+    for (var j = 0; j < aliases.length; j++) {
+      if (t === aliases[j].toLowerCase()) return bev;
+    }
+    if (bn.length >= 4 && (t.includes(bn) || bn.includes(t))) return bev;
+    for (var k = 0; k < aliases.length; k++) {
+      var al = aliases[k].toLowerCase();
+      if (al.length >= 4 && (t.includes(al) || al.includes(t))) return bev;
+    }
+  }
+  return null;
+}
+
+function _matchSalat(token) {
+  var t = token.toLowerCase().trim();
+  for (var i = 0; i < SALAT_KEYWORDS.length; i++) {
+    if (t.includes(SALAT_KEYWORDS[i])) return true;
+  }
+  return false;
+}
+
+function _splitBeverage(dishStr) {
+  if (!dishStr) return { dish: dishStr, napoj: null };
+  var parts = dishStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  if (parts.length < 2) return { dish: dishStr, napoj: null };
+  for (var i = parts.length - 1; i >= Math.max(0, parts.length - 2); i--) {
+    if (_matchBeverage(parts[i])) {
+      var remaining = parts.filter(function(_, idx){ return idx !== i; }).join(', ');
+      return { dish: remaining, napoj: parts[i] };
+    }
+  }
+  return { dish: dishStr, napoj: null };
+}
+
+function _splitSalat(dishStr) {
+  if (!dishStr) return { dish: dishStr, salat: null };
+  var parts = dishStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  if (parts.length < 2) return { dish: dishStr, salat: null };
+  var idx = -1;
+  for (var i = 0; i < parts.length; i++) {
+    if (_matchSalat(parts[i])) { idx = i; break; }
+  }
+  if (idx === -1) return { dish: dishStr, salat: null };
+  return { dish: parts.filter(function(_, i){ return i !== idx; }).join(', '), salat: parts[idx] };
+}
 
 // Loads beverage dict from DB — called lazily (Settings tab open or showApp)
 async function loadBeverageDictFromCloud() {

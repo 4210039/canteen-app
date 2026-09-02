@@ -714,14 +714,16 @@
       </div>
     </div>
 
+    <!-- Beverage Dictionary -->
     <div class="card settings-card" id="beverageDictCard">
       <h3>🥛 Slovník nápojů</h3>
       <p class="muted" style="margin-bottom:.75rem;font-size:.84rem">
-        Aplikace automaticky rozpoznává nápoje a odděluje je od jídel.
-        Přidejte nápoje které nejsou rozpoznány. Fallback: 14 běžných nápojů je vždy k dispozici.
+        Aplikace automaticky rozpoznává nápoje ze slovníku a odděluje je od jídel.
+        Přiddejte nápoje, které nejsou rozpoznány automaticky.
+        Fallback: 14 běžných českých školních nápojů je vždy k dispozici.
       </p>
       <div id="beverageDictList"><p class="muted">Načítám…</p></div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 90px 80px 80px auto;gap:.5rem;align-items:end;margin-top:1rem">
+      <div style="display:grid;grid-template-columns:1fr 1fr 90px 80px 80px auto;gap:.5rem;align-items:end;margin-top:1rem;flex-wrap:wrap">
         <div>
           <label style="font-size:.78rem;font-weight:600;display:block;margin-bottom:.2rem">Název</label>
           <input type="text" id="bevName" placeholder="např. mléko" style="width:100%;padding:.35rem .5rem;border:1px solid var(--border);border-radius:6px;font-size:.83rem">
